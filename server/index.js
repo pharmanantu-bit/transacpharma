@@ -2,6 +2,16 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
+// Charge le fichier .env (ex : PAPPERS_API_TOKEN) s'il existe.
+// Node 20.12+/22+ : process.loadEnvFile. Sinon on garde les variables système.
+if (typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile(path.join(__dirname, '..', '.env'));
+  } catch {
+    /* pas de .env : on utilise les variables d'environnement système */
+  }
+}
+
 const { initDb } = require('./db');
 const sitesRouter = require('./routes/sites');
 const actionsRouter = require('./routes/actions');

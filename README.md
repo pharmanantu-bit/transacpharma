@@ -90,18 +90,23 @@ Le tableau est trié par score décroissant par défaut, et la fiche détaille l
 
 Le bouton **« ⟳ Enrichir (SIREN) »** d'une fiche interroge l'API [Pappers](https://www.pappers.fr/api) et remplit automatiquement : dirigeants, âges, capital, forme juridique, date de création, effectif et chiffre d'affaires.
 
-Pour l'activer, crée un compte gratuit sur **pappers.fr/api** et définis la variable d'environnement avant de lancer le serveur :
+Pour l'activer, crée un compte gratuit sur **pappers.fr/api**, récupère ta clé (API token), puis (au choix) :
 
-```powershell
-# Windows PowerShell
-$env:PAPPERS_API_TOKEN = "ta_cle_pappers"
-npm run dev
+**Méthode recommandée — fichier `.env`** (chargé automatiquement au démarrage, ignoré par Git) :
+
+```
+PAPPERS_API_TOKEN=ta_cle_pappers
 ```
 
+Copie `.env.example` en `.env`, colle ta clé, puis relance `npm run dev`.
+
+**Ou** via variable d'environnement :
+
+```powershell
+$env:PAPPERS_API_TOKEN = "ta_cle_pappers"; npm run dev   # Windows
+```
 ```bash
-# Linux/macOS ou Docker
-export PAPPERS_API_TOKEN="ta_cle_pappers"
-docker-compose up --build
+export PAPPERS_API_TOKEN="ta_cle_pappers" && docker-compose up --build   # Linux/macOS/Docker
 ```
 
 Sans clé, l'enrichissement renvoie un message explicite ; le reste de l'app fonctionne normalement.
