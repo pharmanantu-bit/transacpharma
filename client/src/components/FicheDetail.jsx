@@ -79,7 +79,10 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
       const json = await res.json();
       if (json.success) {
         onEnriched && onEnriched(json.data);
-        setEnrichMsg({ type: 'ok', text: 'Fiche enrichie depuis Pappers.' });
+        setEnrichMsg({
+          type: 'ok',
+          text: `Fiche enrichie (${json.source || 'annuaire des entreprises'}).`
+        });
       } else {
         setEnrichMsg({ type: 'err', text: json.error || 'Échec de l\'enrichissement.' });
       }
@@ -177,7 +180,7 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
             <button
               onClick={handleEnrich}
               disabled={enriching}
-              title="Récupère dirigeants, âges, capital, CA… depuis le SIREN (Pappers)"
+              title="Récupère dirigeants, âges, forme juridique, effectif… depuis le SIREN (annuaire des entreprises, gratuit)"
               className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber text-amber hover:bg-amber/10 disabled:opacity-60"
             >
               {enriching ? '⟳ Enrichissement…' : '⟳ Enrichir (SIREN)'}

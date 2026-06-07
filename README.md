@@ -57,7 +57,7 @@ Toutes les réponses sont au format JSON avec un champ `success: true/false`.
 | DELETE  | `/api/sites/:id`            | Supprimer un site                        |
 | GET     | `/api/sites/:id/actions`    | Historique des actions d'un site         |
 | POST    | `/api/sites/:id/actions`    | Ajouter une action                       |
-| POST    | `/api/sites/:id/enrich`     | Enrichissement société via SIREN (Pappers) |
+| POST    | `/api/sites/:id/enrich`     | Enrichissement société via SIREN (annuaire gratuit) |
 | POST    | `/api/sites/batch`          | Import en masse (depuis la Découverte)   |
 | GET     | `/api/discovery/departements` | Liste des départements (sélecteur)     |
 | POST    | `/api/discovery/scan`       | Scan d'opportunités par département(s)    |
@@ -86,30 +86,21 @@ Chaque site reçoit automatiquement un **score 0-100** et un niveau (🔥 Chaud 
 
 Le tableau est trié par score décroissant par défaut, et la fiche détaille les raisons du score.
 
-## Enrichissement SIREN (Pappers)
+## Enrichissement SIREN (gratuit)
 
-Le bouton **« ⟳ Enrichir (SIREN) »** d'une fiche interroge l'API [Pappers](https://www.pappers.fr/api) et remplit automatiquement : dirigeants, âges, capital, forme juridique, date de création, effectif et chiffre d'affaires.
+Le bouton **« ⟳ Enrichir (SIREN) »** d'une fiche interroge l'**annuaire des entreprises** (`recherche-entreprises.api.gouv.fr`, données officielles INSEE/INPI, **gratuit et sans clé**) et remplit automatiquement : dirigeants, **âges** (depuis l'année de naissance au RNE), forme juridique, date de création, effectif, et chiffre d'affaires quand il est publié.
 
-Pour l'activer, crée un compte gratuit sur **pappers.fr/api**, récupère ta clé (API token), puis (au choix) :
+Aucune configuration nécessaire — ça marche directement.
 
-**Méthode recommandée — fichier `.env`** (chargé automatiquement au démarrage, ignoré par Git) :
+### Bonus optionnel : Pappers
+
+Pour obtenir en plus le **capital** et un **CA détaillé** (souvent absents de l'annuaire pour les officines), tu peux ajouter une clé [Pappers](https://www.pappers.fr/api) (compte gratuit). Copie `.env.example` en `.env` et renseigne :
 
 ```
 PAPPERS_API_TOKEN=ta_cle_pappers
 ```
 
-Copie `.env.example` en `.env`, colle ta clé, puis relance `npm run dev`.
-
-**Ou** via variable d'environnement :
-
-```powershell
-$env:PAPPERS_API_TOKEN = "ta_cle_pappers"; npm run dev   # Windows
-```
-```bash
-export PAPPERS_API_TOKEN="ta_cle_pappers" && docker-compose up --build   # Linux/macOS/Docker
-```
-
-Sans clé, l'enrichissement renvoie un message explicite ; le reste de l'app fonctionne normalement.
+Le `.env` est chargé automatiquement au démarrage (et ignoré par Git). Sans clé, l'enrichissement gratuit fonctionne normalement.
 
 ## Statuts
 

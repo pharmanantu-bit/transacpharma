@@ -65,6 +65,92 @@ function mapPappers(d) {
   };
 }
 
+// ---------- Enrichissement gratuit (annuaire des entreprises) ----------
+// recherche-entreprises.api.gouv.fr : données officielles INSEE/INPI, sans clé.
+const NATURE_JURIDIQUE = {
+  '1000': 'Entrepreneur individuel',
+  '5410': 'SARL', '5499': 'SARL', '5498': 'SARL (associé unique)',
+  '5485': 'SELARL', '5470': 'SELARL',
+  '5710': 'SAS', '5720': 'SASU',
+  '5785': 'SELAS', '5775': 'SELAFA', '5770': 'SELAFA',
+  '6540': 'SCI', '5202': 'SNC'
+};
+const EFFECTIF = {
+  '00': '0 salarié', '01': '1-2 salariés', '02': '3-5 salariés', '03': '6-9 salariés',
+  '11': '10-19 salariés', '12': '20-49 salariés', '21': '50-99 salariés', '22': '100-199 salariés',
+  '31': '200-249 salariés', '32': '250-499 salariés', '41': '500-999 salariés',
+  '42': '1000-1999 salariés', '51': '2000-4999 salariés', '52': '5000-9999 salariés', '53': '10000+ salariés'
+};
+const DIRIGEANT_RE = /g[ée]rant|pr[ée]sident|directeur|associ[ée]|exploitant|titulaire/i;
+
+async function enrichFromGouv(siren) {
+  const res = await fetch(`https://recherche-entreprises.api.gouv.fr/search?q=${siren}`, {
+    headers: { 'User-Agent': 'TransacPharma/1.0 (pharmanantu@gmail.com)' },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  const e = (json.results || []).find((r) => r.siren === siren) || (json.results || [])[0];
+  if (!e) return null;
+
+  const dirs = (e.dirigeants || []).filter(
+    (d) =>
+      d.type_dirigeant === 'personne physique' &&
+      DIRIGEANT_RE.test(d.qualite || '') &&
+      !/commissaire/i.test(d.qualite || '')
+  );
+  const names = [];
+  const ages = [];
+  for (const d of dirs) {
+    const nm = [d.prenoms, d.nom].filter(Boolean).join(' ').trim();
+    if (nm && !names.includes(nm)) names.push(nm);
+    const y = parseInt(d.annee_de_naissance, 10);
+    if (y) {
+      const a = new Date().getFullYear() - y;
+      if (a >= 18 && a <= 110) ages.push(a);
+    }
+  }
+
+  let ca = '';
+  if (e.finances) {
+    for (const y of Object.keys(e.finances).sort().reverse()) {
+      if (e.finances[y] && e.finances[y].ca > 0) {
+        ca = frEuro(e.finances[y].ca);
+        break;
+      }
+    }
+  }
+
+  return {
+    denomination: e.nom_complet || '',
+    dirigeant: names.join(' + '),
+    age: ages.join('/'),
+    capital: '',
+    forme_juridique: NATURE_JURIDIQUE[e.nature_juridique] || (e.nature_juridique ? `Forme ${e.nature_juridique}` : ''),
+    date_creation: e.date_creation || '',
+    effectif: EFFECTIF[e.tranche_effectif_salarie] || '',
+    chiffre_affaires: ca
+  };
+}
+
+// Pappers (optionnel, seulement si une clé est configurée) — complète capital / CA
+async function enrichFromPappers(siren, token) {
+  const url = `https://api.pappers.fr/v2/entreprise?api_token=${encodeURIComponent(token)}&siren=${siren}`;
+  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!resp.ok) return null;
+  return mapPappers(await resp.json());
+}
+
+// Fusion : on garde la donnée gratuite (officielle), on comble les trous avec Pappers
+function mergeEnrich(base, extra) {
+  if (!extra) return base;
+  const out = { ...base };
+  for (const k of Object.keys(extra)) {
+    if (!out[k] && extra[k]) out[k] = extra[k];
+  }
+  return out;
+}
+
 // ---------- Routes ----------
 
 // GET /api/sites — liste avec filtres optionnels (statut, enseigne, departement, q)
@@ -250,7 +336,8 @@ router.delete('/sites/:id', (req, res) => {
   }
 });
 
-// POST /api/sites/:id/enrich — enrichissement via l'API Pappers (SIREN)
+// POST /api/sites/:id/enrich — enrichissement via l'annuaire des entreprises
+// (gratuit, sans clé), complété par Pappers seulement si une clé est configurée.
 router.post('/sites/:id/enrich', async (req, res) => {
   try {
     const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
@@ -265,25 +352,34 @@ router.post('/sites/:id/enrich', async (req, res) => {
       });
     }
 
+    // 1) Source gratuite officielle (INSEE/INPI)
+    let m;
+    try {
+      m = await enrichFromGouv(siren);
+    } catch (e) {
+      return res
+        .status(502)
+        .json({ success: false, error: 'Annuaire des entreprises injoignable : ' + e.message });
+    }
+    if (!m) {
+      return res.status(404).json({ success: false, error: 'Aucune entreprise trouvée pour ce SIREN.' });
+    }
+    let source = 'annuaire-entreprises';
+
+    // 2) Bonus optionnel : Pappers si une clé est configurée (capital, CA détaillé)
     const token = process.env.PAPPERS_API_TOKEN;
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        error: 'Clé API Pappers absente. Crée un compte gratuit sur pappers.fr/api puis définis la variable d\'environnement PAPPERS_API_TOKEN avant de relancer le serveur.'
-      });
+    if (token) {
+      try {
+        const p = await enrichFromPappers(siren, token);
+        if (p) {
+          m = mergeEnrich(m, p);
+          source = 'annuaire + pappers';
+        }
+      } catch {
+        /* on conserve la donnée gratuite */
+      }
     }
 
-    const url = `https://api.pappers.fr/v2/entreprise?api_token=${encodeURIComponent(token)}&siren=${siren}`;
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      return res.status(502).json({
-        success: false,
-        error: `Pappers a répondu ${resp.status}. ${txt.slice(0, 200)}`
-      });
-    }
-    const data = await resp.json();
-    const m = mapPappers(data);
     const now = new Date().toISOString();
 
     db.prepare(`
@@ -308,7 +404,7 @@ router.post('/sites/:id/enrich', async (req, res) => {
     );
 
     const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
-    res.json({ success: true, data: withScore(row), source: m });
+    res.json({ success: true, data: withScore(row), source });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
