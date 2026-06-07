@@ -1,6 +1,7 @@
-import { STATUTS, ageNumber } from '../constants';
+import { STATUTS, SCORE_LEVELS, ageNumber } from '../constants';
 
 const COLS = [
+  { key: 'score', label: 'Score', w: 'w-20' },
   { key: 'cc', label: 'CC', w: 'min-w-[180px]' },
   { key: 'departement', label: 'Dép', w: 'w-14' },
   { key: 'enseigne', label: 'Enseigne', w: 'w-24' },
@@ -12,6 +13,21 @@ const COLS = [
   { key: 'statut', label: 'Statut', w: 'w-32' },
   { key: 'remarques', label: 'Remarques', w: 'min-w-[260px]' }
 ];
+
+export function ScoreBadge({ score, label, compact }) {
+  const cfg = SCORE_LEVELS[label] || SCORE_LEVELS.Froid;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
+      style={{ backgroundColor: cfg.bg, color: cfg.text }}
+      title={`${cfg.label} — score ${score}/100`}
+    >
+      <span>{cfg.emoji}</span>
+      <span>{score}</span>
+      {!compact && <span className="font-semibold opacity-80">{cfg.label}</span>}
+    </span>
+  );
+}
 
 export function Badge({ statut }) {
   const cfg = STATUTS[statut] || STATUTS.todo;
@@ -80,6 +96,9 @@ export default function TableauProspection({ sites, sort, onSort, onRowClick, lo
                       i % 2 === 1 ? 'bg-[#FCFBF9]' : 'bg-white'
                     }`}
                   >
+                    <td className="px-3 py-2.5">
+                      <ScoreBadge score={s.score ?? 0} label={s.score_label} compact />
+                    </td>
                     <td className="px-3 py-2.5 font-medium">{s.cc || '—'}</td>
                     <td className="px-3 py-2.5 text-gray-600">{s.departement || '—'}</td>
                     <td className="px-3 py-2.5 text-gray-600">{s.enseigne || '—'}</td>

@@ -57,7 +57,39 @@ Toutes les réponses sont au format JSON avec un champ `success: true/false`.
 | DELETE  | `/api/sites/:id`            | Supprimer un site                        |
 | GET     | `/api/sites/:id/actions`    | Historique des actions d'un site         |
 | POST    | `/api/sites/:id/actions`    | Ajouter une action                       |
-| GET     | `/api/export/csv`           | Export CSV complet                       |
+| POST    | `/api/sites/:id/enrich`     | Enrichissement société via SIREN (Pappers) |
+| GET     | `/api/export/csv`           | Export CSV complet (avec score)          |
+
+## Scoring d'opportunité
+
+Chaque site reçoit automatiquement un **score 0-100** et un niveau (🔥 Chaud / 🟠 Tiède / ❄️ Froid / ⛔ Exclu), calculé côté serveur (`server/scoring.js`) à partir de :
+
+- l'âge du dirigeant le plus âgé (≥ 65 / sexagénaire / 55-59…) — signal n°1 de cession ;
+- des signaux détectés dans les remarques (sans successeur, réduction de capital, transformation juridique, « prioritaire », couple, sortie évoquée…) ;
+- du statut courant (cible, surveiller…) ;
+- de pénalités (pas de pharmacie à racheter, réseau Apothical, site exclu).
+
+Le tableau est trié par score décroissant par défaut, et la fiche détaille les raisons du score.
+
+## Enrichissement SIREN (Pappers)
+
+Le bouton **« ⟳ Enrichir (SIREN) »** d'une fiche interroge l'API [Pappers](https://www.pappers.fr/api) et remplit automatiquement : dirigeants, âges, capital, forme juridique, date de création, effectif et chiffre d'affaires.
+
+Pour l'activer, crée un compte gratuit sur **pappers.fr/api** et définis la variable d'environnement avant de lancer le serveur :
+
+```powershell
+# Windows PowerShell
+$env:PAPPERS_API_TOKEN = "ta_cle_pappers"
+npm run dev
+```
+
+```bash
+# Linux/macOS ou Docker
+export PAPPERS_API_TOKEN="ta_cle_pappers"
+docker-compose up --build
+```
+
+Sans clé, l'enrichissement renvoie un message explicite ; le reste de l'app fonctionne normalement.
 
 ## Statuts
 

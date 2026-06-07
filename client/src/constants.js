@@ -10,6 +10,14 @@ export const STATUTS = {
 
 export const STATUT_ORDER = ['cible', 'surveiller', 'todo', 'opp', 'ok', 'exclu'];
 
+// Niveaux de score d'opportunité (renvoyés par l'API : score_label)
+export const SCORE_LEVELS = {
+  Chaud: { label: 'Chaud', emoji: '🔥', bg: '#FCE0E0', text: '#B91C1C' },
+  Tiède: { label: 'Tiède', emoji: '🟠', bg: '#FDEBC8', text: '#92400E' },
+  Froid: { label: 'Froid', emoji: '❄️', bg: '#E5EAF1', text: '#475066' },
+  Exclu: { label: 'Exclu', emoji: '⛔', bg: '#E5E7EB', text: '#6B7280' }
+};
+
 export const ENSEIGNES = ['Carrefour', 'Auchan', 'Leclerc'];
 
 export const DEPARTEMENTS = ['28', '60', '77', '78', '91', '93', '94', '95'];

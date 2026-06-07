@@ -15,7 +15,7 @@ export default function App() {
 
   const [filters, setFilters] = useState({ statut: '', enseigne: '', departement: '' });
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState({ key: 'id', dir: 'asc' });
+  const [sort, setSort] = useState({ key: 'score', dir: 'desc' });
 
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null); // { mode: 'new' | 'edit', site? }
@@ -54,6 +54,9 @@ export default function App() {
       if (key === 'age') {
         va = ageNumber(va) ?? -1;
         vb = ageNumber(vb) ?? -1;
+      } else if (key === 'score') {
+        va = a.score ?? -1;
+        vb = b.score ?? -1;
       } else if (key === 'id' || key === 'departement') {
         va = parseInt(va, 10) || 0;
         vb = parseInt(vb, 10) || 0;
@@ -192,6 +195,7 @@ export default function App() {
           api={API}
           onClose={() => setSelectedId(null)}
           onUpdate={updateSite}
+          onEnriched={(row) => setSites((prev) => prev.map((s) => (s.id === row.id ? row : s)))}
           onEdit={() => setModal({ mode: 'edit', site: selectedSite })}
           onDelete={deleteSite}
         />

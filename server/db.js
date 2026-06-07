@@ -74,6 +74,15 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_actions_site ON actions(site_id);
   `);
 
+  // Migration : colonnes d'enrichissement (ajoutées si absentes)
+  const existingCols = db.prepare('PRAGMA table_info(sites)').all().map((c) => c.name);
+  const ensureCol = (name) => {
+    if (!existingCols.includes(name)) {
+      db.exec(`ALTER TABLE sites ADD COLUMN ${name} TEXT DEFAULT ''`);
+    }
+  };
+  ['capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires', 'enriched_at'].forEach(ensureCol);
+
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM sites').get();
   if (n === 0) {
     const now = new Date().toISOString();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { STATUTS, STATUT_ORDER, ACTION_TYPES, ageNumber, formatDate } from '../constants';
-import { Badge } from './TableauProspection';
+import { Badge, ScoreBadge } from './TableauProspection';
 import HistoriqueActions from './HistoriqueActions';
 
 function InfoRow({ label, value, senior }) {
@@ -14,7 +14,7 @@ function InfoRow({ label, value, senior }) {
   );
 }
 
-export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDelete }) {
+export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, onEdit, onDelete }) {
   const [note, setNote] = useState(site.note_interne || '');
   const [noteStatus, setNoteStatus] = useState('idle'); // idle | saving | saved
   const [actions, setActions] = useState([]);
@@ -23,6 +23,8 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDe
   const [showStatutMenu, setShowStatutMenu] = useState(false);
   const [form, setForm] = useState({ type: 'contact', auteur: '', contenu: '' });
   const [formError, setFormError] = useState('');
+  const [enriching, setEnriching] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState(null); // { type: 'ok'|'err', text }
 
   const debounceRef = useRef(null);
   const ageSenior = ageNumber(site.age) != null && ageNumber(site.age) >= 60;
@@ -63,6 +65,29 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDe
   const changeStatut = async (statut) => {
     setShowStatutMenu(false);
     await onUpdate(site.id, { statut });
+  };
+
+  const handleEnrich = async () => {
+    setEnriching(true);
+    setEnrichMsg(null);
+    try {
+      const res = await fetch(`${api}/sites/${site.id}/enrich`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siren: site.siren })
+      });
+      const json = await res.json();
+      if (json.success) {
+        onEnriched && onEnriched(json.data);
+        setEnrichMsg({ type: 'ok', text: 'Fiche enrichie depuis Pappers.' });
+      } else {
+        setEnrichMsg({ type: 'err', text: json.error || 'Échec de l\'enrichissement.' });
+      }
+    } catch (e) {
+      setEnrichMsg({ type: 'err', text: e.message });
+    } finally {
+      setEnriching(false);
+    }
   };
 
   const submitAction = async (e) => {
@@ -150,6 +175,14 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDe
               ✎ Modifier la fiche
             </button>
             <button
+              onClick={handleEnrich}
+              disabled={enriching}
+              title="Récupère dirigeants, âges, capital, CA… depuis le SIREN (Pappers)"
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber text-amber hover:bg-amber/10 disabled:opacity-60"
+            >
+              {enriching ? '⟳ Enrichissement…' : '⟳ Enrichir (SIREN)'}
+            </button>
+            <button
               onClick={() => onDelete(site.id)}
               className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-600 hover:bg-red-50 ml-auto"
             >
@@ -159,6 +192,38 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDe
         </div>
 
         <div className="p-5 space-y-6">
+          {/* Score d'opportunité */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                Score d'opportunité
+              </h3>
+              <ScoreBadge score={site.score ?? 0} label={site.score_label} />
+            </div>
+            <ul className="flex flex-wrap gap-1.5 mt-2">
+              {(site.score_reasons || []).map((r, i) => (
+                <li
+                  key={i}
+                  className="text-xs px-2 py-0.5 rounded-full bg-cream border border-gray-200 text-gray-600"
+                >
+                  {r}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {enrichMsg && (
+            <div
+              className={`px-4 py-2.5 rounded-lg text-sm border ${
+                enrichMsg.type === 'ok'
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-red-50 border-red-200 text-red-700'
+              }`}
+            >
+              {enrichMsg.text}
+            </div>
+          )}
+
           {/* Infos */}
           <section className="bg-white border border-gray-200 rounded-xl p-4">
             <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2">Informations</h3>
@@ -167,6 +232,20 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDe
             <InfoRow label="Dirigeant" value={site.dirigeant} />
             <InfoRow label="Âge" value={site.age} senior={ageSenior} />
             <InfoRow label="Groupement" value={site.groupement} />
+            {(site.forme_juridique || site.capital || site.date_creation || site.effectif || site.chiffre_affaires) && (
+              <>
+                <InfoRow label="Forme jurid." value={site.forme_juridique} />
+                <InfoRow label="Capital" value={site.capital} />
+                <InfoRow label="CA" value={site.chiffre_affaires} />
+                <InfoRow label="Effectif" value={site.effectif} />
+                <InfoRow label="Création" value={site.date_creation} />
+              </>
+            )}
+            {site.enriched_at && (
+              <p className="text-[11px] text-gray-400 mt-2">
+                Enrichi le {formatDate(site.enriched_at)} via Pappers
+              </p>
+            )}
             <div className="pt-2">
               <span className="text-xs font-semibold text-gray-400">Remarques</span>
               <p className="text-sm text-marine mt-1 whitespace-pre-wrap">{site.remarques || '—'}</p>

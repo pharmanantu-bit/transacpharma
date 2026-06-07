@@ -7,6 +7,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      # Clé API Pappers pour l'enrichissement SIREN (compte gratuit sur pappers.fr/api)
+      - PAPPERS_API_TOKEN=${PAPPERS_API_TOKEN:-}
     volumes:
       - pharma-db:/app/db
     restart: unless-stopped

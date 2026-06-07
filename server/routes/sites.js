@@ -1,11 +1,71 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
+const { computeScore } = require('../scoring');
 
 const FIELDS = [
   'cc', 'departement', 'enseigne', 'siren', 'pharmacie',
   'dirigeant', 'age', 'groupement', 'statut', 'remarques', 'note_interne'
 ];
+
+// Ajoute le score calculé à une ligne renvoyée par l'API
+function withScore(row) {
+  if (!row) return row;
+  const s = computeScore(row);
+  return { ...row, score: s.score, score_label: s.label, score_reasons: s.reasons };
+}
+
+// ---------- Enrichissement Pappers (helpers) ----------
+function frEuro(n) {
+  if (n == null || n === '') return '';
+  const num = Number(n);
+  if (Number.isNaN(num)) return String(n);
+  return num.toLocaleString('fr-FR') + ' €';
+}
+
+function ageFromBirth(s) {
+  if (!s) return null;
+  const m = String(s).match(/(\d{4})/);
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  const a = new Date().getFullYear() - year;
+  return a >= 18 && a <= 110 ? a : null;
+}
+
+function mapPappers(d) {
+  const reps = Array.isArray(d.representants) ? d.representants : [];
+  const names = [];
+  const ages = [];
+  for (const r of reps) {
+    const name = r.nom_complet || [r.prenom, r.nom].filter(Boolean).join(' ').trim();
+    if (name) names.push(name);
+    const birth = r.date_de_naissance_rgpd || r.date_de_naissance_formate || r.date_de_naissance;
+    const a = ageFromBirth(birth);
+    if (a) ages.push(a);
+  }
+
+  let ca = '';
+  if (Array.isArray(d.finances) && d.finances.length) {
+    const sorted = [...d.finances].sort((a, b) => (b.annee || 0) - (a.annee || 0));
+    const latest = sorted.find((f) => f.chiffre_affaires != null);
+    if (latest) ca = frEuro(latest.chiffre_affaires);
+  } else if (d.chiffre_affaires != null) {
+    ca = frEuro(d.chiffre_affaires);
+  }
+
+  return {
+    denomination: d.nom_entreprise || d.denomination || '',
+    dirigeant: names.join(' + '),
+    age: ages.join('/'),
+    capital: d.capital != null ? frEuro(d.capital) : '',
+    forme_juridique: d.forme_juridique || d.libelle_forme_juridique || '',
+    date_creation: d.date_creation_formate || d.date_creation || '',
+    effectif: d.effectif || d.tranche_effectif || '',
+    chiffre_affaires: ca
+  };
+}
+
+// ---------- Routes ----------
 
 // GET /api/sites — liste avec filtres optionnels (statut, enseigne, departement, q)
 router.get('/sites', (req, res) => {
@@ -24,7 +84,7 @@ router.get('/sites', (req, res) => {
     }
     sql += ' ORDER BY id ASC';
 
-    const rows = db.prepare(sql).all(...params);
+    const rows = db.prepare(sql).all(...params).map(withScore);
     res.json({ success: true, data: rows });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -36,7 +96,7 @@ router.get('/sites/:id', (req, res) => {
   try {
     const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ success: false, error: 'Site introuvable' });
-    res.json({ success: true, data: row });
+    res.json({ success: true, data: withScore(row) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -62,7 +122,7 @@ router.post('/sites', (req, res) => {
     `);
     const info = stmt.run({ ...data, date_maj: now, created_at: now });
     const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json({ success: true, data: row });
+    res.status(201).json({ success: true, data: withScore(row) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -92,7 +152,7 @@ router.put('/sites/:id', (req, res) => {
 
     db.prepare(`UPDATE sites SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
-    res.json({ success: true, data: row });
+    res.json({ success: true, data: withScore(row) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -111,22 +171,89 @@ router.delete('/sites/:id', (req, res) => {
   }
 });
 
-// GET /api/export/csv — export complet
+// POST /api/sites/:id/enrich — enrichissement via l'API Pappers (SIREN)
+router.post('/sites/:id/enrich', async (req, res) => {
+  try {
+    const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    if (!site) return res.status(404).json({ success: false, error: 'Site introuvable' });
+
+    const sirenRaw = (req.body && req.body.siren) || site.siren || '';
+    const siren = String(sirenRaw).replace(/\D/g, '');
+    if (siren.length !== 9) {
+      return res.status(400).json({
+        success: false,
+        error: 'SIREN invalide : 9 chiffres requis. Renseigne d\'abord le SIREN sur la fiche.'
+      });
+    }
+
+    const token = process.env.PAPPERS_API_TOKEN;
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Clé API Pappers absente. Crée un compte gratuit sur pappers.fr/api puis définis la variable d\'environnement PAPPERS_API_TOKEN avant de relancer le serveur.'
+      });
+    }
+
+    const url = `https://api.pappers.fr/v2/entreprise?api_token=${encodeURIComponent(token)}&siren=${siren}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      return res.status(502).json({
+        success: false,
+        error: `Pappers a répondu ${resp.status}. ${txt.slice(0, 200)}`
+      });
+    }
+    const data = await resp.json();
+    const m = mapPappers(data);
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      UPDATE sites SET
+        siren = ?,
+        dirigeant = CASE WHEN ? <> '' THEN ? ELSE dirigeant END,
+        age = CASE WHEN ? <> '' THEN ? ELSE age END,
+        capital = ?,
+        forme_juridique = ?,
+        date_creation = ?,
+        effectif = ?,
+        chiffre_affaires = ?,
+        enriched_at = ?,
+        date_maj = ?
+      WHERE id = ?
+    `).run(
+      siren,
+      m.dirigeant, m.dirigeant,
+      m.age, m.age,
+      m.capital, m.forme_juridique, m.date_creation, m.effectif, m.chiffre_affaires,
+      now, now, req.params.id
+    );
+
+    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    res.json({ success: true, data: withScore(row), source: m });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/export/csv — export complet (avec score)
 router.get('/export/csv', (req, res) => {
   try {
     const rows = db.prepare('SELECT * FROM sites ORDER BY id ASC').all();
     const cols = [
       'id', 'cc', 'departement', 'enseigne', 'siren', 'pharmacie',
-      'dirigeant', 'age', 'groupement', 'statut', 'remarques',
-      'note_interne', 'date_maj', 'created_at'
+      'dirigeant', 'age', 'groupement', 'statut', 'score', 'score_label',
+      'capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires',
+      'remarques', 'note_interne', 'enriched_at', 'date_maj', 'created_at'
     ];
     const escape = (v) => {
       const s = v == null ? '' : String(v);
       return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const header = cols.join(';');
-    const lines = rows.map((r) => cols.map((c) => escape(r[c])).join(';'));
-    // BOM pour Excel + accents
+    const lines = rows.map((r) => {
+      const scored = withScore(r);
+      return cols.map((c) => escape(scored[c])).join(';');
+    });
     const csv = '﻿' + [header, ...lines].join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
