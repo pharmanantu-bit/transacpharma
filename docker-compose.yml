@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    container_name: transacpharma
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - pharma-db:/app/db
+    restart: unless-stopped
+
+volumes:
+  pharma-db:

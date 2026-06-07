@@ -1,0 +1,257 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { STATUTS, STATUT_ORDER, ACTION_TYPES, ageNumber, formatDate } from '../constants';
+import { Badge } from './TableauProspection';
+import HistoriqueActions from './HistoriqueActions';
+
+function InfoRow({ label, value, senior }) {
+  return (
+    <div className="flex gap-3 py-1.5 border-b border-gray-100">
+      <span className="text-xs font-semibold text-gray-400 w-28 shrink-0 pt-0.5">{label}</span>
+      <span className={`text-sm ${senior ? 'text-red-600 font-bold' : 'text-marine'}`}>
+        {value || '—'}
+      </span>
+    </div>
+  );
+}
+
+export default function FicheDetail({ site, api, onClose, onUpdate, onEdit, onDelete }) {
+  const [note, setNote] = useState(site.note_interne || '');
+  const [noteStatus, setNoteStatus] = useState('idle'); // idle | saving | saved
+  const [actions, setActions] = useState([]);
+  const [loadingActions, setLoadingActions] = useState(true);
+  const [showActionForm, setShowActionForm] = useState(false);
+  const [showStatutMenu, setShowStatutMenu] = useState(false);
+  const [form, setForm] = useState({ type: 'contact', auteur: '', contenu: '' });
+  const [formError, setFormError] = useState('');
+
+  const debounceRef = useRef(null);
+  const ageSenior = ageNumber(site.age) != null && ageNumber(site.age) >= 60;
+
+  // Recharge la note quand on change de site
+  useEffect(() => {
+    setNote(site.note_interne || '');
+    setNoteStatus('idle');
+  }, [site.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadActions = useCallback(async () => {
+    setLoadingActions(true);
+    try {
+      const res = await fetch(`${api}/sites/${site.id}/actions`);
+      const json = await res.json();
+      if (json.success) setActions(json.data);
+    } finally {
+      setLoadingActions(false);
+    }
+  }, [api, site.id]);
+
+  useEffect(() => {
+    loadActions();
+  }, [loadActions]);
+
+  // Autosave de la note interne (debounce 700ms)
+  const onNoteChange = (val) => {
+    setNote(val);
+    setNoteStatus('saving');
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      await onUpdate(site.id, { note_interne: val });
+      setNoteStatus('saved');
+      setTimeout(() => setNoteStatus('idle'), 1500);
+    }, 700);
+  };
+
+  const changeStatut = async (statut) => {
+    setShowStatutMenu(false);
+    await onUpdate(site.id, { statut });
+  };
+
+  const submitAction = async (e) => {
+    e.preventDefault();
+    setFormError('');
+    if (!form.contenu.trim()) {
+      setFormError('Le contenu est obligatoire.');
+      return;
+    }
+    try {
+      const res = await fetch(`${api}/sites/${site.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const json = await res.json();
+      if (json.success) {
+        setForm({ type: 'contact', auteur: form.auteur, contenu: '' });
+        setShowActionForm(false);
+        loadActions();
+      } else {
+        setFormError(json.error || 'Erreur');
+      }
+    } catch (e) {
+      setFormError(e.message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-30 flex justify-end">
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/30 fade-anim" onClick={onClose} />
+
+      {/* Drawer */}
+      <aside className="relative drawer-anim w-full max-w-[560px] bg-cream h-full overflow-y-auto shadow-2xl">
+        {/* Header drawer */}
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 z-10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-extrabold">{site.cc}</h2>
+                <Badge statut={site.statut} />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {site.enseigne} · Dép. {site.departement || '—'} · MAJ {formatDate(site.date_maj)}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-marine text-2xl leading-none px-1"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Actions rapides */}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <div className="relative">
+              <button
+                onClick={() => setShowStatutMenu((v) => !v)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 hover:bg-gray-50"
+              >
+                ⇄ Changer le statut
+              </button>
+              {showStatutMenu && (
+                <div className="absolute left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 w-44">
+                  {STATUT_ORDER.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => changeStatut(k)}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUTS[k].dot }} />
+                      {STATUTS[k].label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={onEdit}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              ✎ Modifier la fiche
+            </button>
+            <button
+              onClick={() => onDelete(site.id)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-600 hover:bg-red-50 ml-auto"
+            >
+              🗑 Supprimer
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-6">
+          {/* Infos */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2">Informations</h3>
+            <InfoRow label="SIREN" value={site.siren} />
+            <InfoRow label="Pharmacie" value={site.pharmacie} />
+            <InfoRow label="Dirigeant" value={site.dirigeant} />
+            <InfoRow label="Âge" value={site.age} senior={ageSenior} />
+            <InfoRow label="Groupement" value={site.groupement} />
+            <div className="pt-2">
+              <span className="text-xs font-semibold text-gray-400">Remarques</span>
+              <p className="text-sm text-marine mt-1 whitespace-pre-wrap">{site.remarques || '—'}</p>
+            </div>
+          </section>
+
+          {/* Note interne */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">Note interne</h3>
+              <span className="text-xs text-gray-400">
+                {noteStatus === 'saving' && '💾 Enregistrement…'}
+                {noteStatus === 'saved' && '✓ Enregistré'}
+              </span>
+            </div>
+            <textarea
+              value={note}
+              onChange={(e) => onNoteChange(e.target.value)}
+              placeholder="Notes privées modifiables (sauvegarde automatique)…"
+              rows={4}
+              className="w-full text-sm rounded-lg border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-amber/40 focus:border-amber resize-y"
+            />
+          </section>
+
+          {/* Historique */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                Historique des actions
+              </h3>
+              <button
+                onClick={() => setShowActionForm((v) => !v)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-marine text-white hover:bg-[#262640]"
+              >
+                {showActionForm ? '× Annuler' : '+ Ajouter une action'}
+              </button>
+            </div>
+
+            {showActionForm && (
+              <form onSubmit={submitAction} className="bg-cream border border-gray-200 rounded-lg p-3 mb-4 space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={form.type}
+                    onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                    className="px-2 py-1.5 text-sm rounded-lg border border-gray-300 bg-white"
+                  >
+                    {Object.entries(ACTION_TYPES).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v.emoji} {v.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={form.auteur}
+                    onChange={(e) => setForm((f) => ({ ...f, auteur: e.target.value }))}
+                    placeholder="Auteur"
+                    className="flex-1 px-2 py-1.5 text-sm rounded-lg border border-gray-300"
+                  />
+                </div>
+                <textarea
+                  value={form.contenu}
+                  onChange={(e) => setForm((f) => ({ ...f, contenu: e.target.value }))}
+                  placeholder="Contenu de l'action…"
+                  rows={3}
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-300 resize-y"
+                />
+                {formError && <p className="text-xs text-red-600">{formError}</p>}
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-amber text-marine hover:brightness-95"
+                >
+                  Enregistrer l'action
+                </button>
+              </form>
+            )}
+
+            {loadingActions ? (
+              <p className="text-sm text-gray-400">Chargement…</p>
+            ) : (
+              <HistoriqueActions actions={actions} />
+            )}
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}

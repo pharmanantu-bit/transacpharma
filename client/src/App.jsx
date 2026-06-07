@@ -1,0 +1,210 @@
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import KpiBar from './components/KpiBar';
+import Filtres from './components/Filtres';
+import TableauProspection from './components/TableauProspection';
+import FicheDetail from './components/FicheDetail';
+import ModalEdition from './components/ModalEdition';
+import { ageNumber } from './constants';
+
+const API = '/api';
+
+export default function App() {
+  const [sites, setSites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [filters, setFilters] = useState({ statut: '', enseigne: '', departement: '' });
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState({ key: 'id', dir: 'asc' });
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [modal, setModal] = useState(null); // { mode: 'new' | 'edit', site? }
+
+  const fetchSites = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (filters.statut) params.set('statut', filters.statut);
+      if (filters.enseigne) params.set('enseigne', filters.enseigne);
+      if (filters.departement) params.set('departement', filters.departement);
+      if (search.trim()) params.set('q', search.trim());
+      const res = await fetch(`${API}/sites?${params.toString()}`);
+      const json = await res.json();
+      if (json.success) setSites(json.data);
+      else setError(json.error || 'Erreur de chargement');
+    } catch (e) {
+      setError('Serveur injoignable : ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, search]);
+
+  useEffect(() => {
+    const t = setTimeout(fetchSites, 200);
+    return () => clearTimeout(t);
+  }, [fetchSites]);
+
+  const sorted = useMemo(() => {
+    const arr = [...sites];
+    const { key, dir } = sort;
+    arr.sort((a, b) => {
+      let va = a[key] ?? '';
+      let vb = b[key] ?? '';
+      if (key === 'age') {
+        va = ageNumber(va) ?? -1;
+        vb = ageNumber(vb) ?? -1;
+      } else if (key === 'id' || key === 'departement') {
+        va = parseInt(va, 10) || 0;
+        vb = parseInt(vb, 10) || 0;
+      } else {
+        va = String(va).toLowerCase();
+        vb = String(vb).toLowerCase();
+      }
+      if (va < vb) return dir === 'asc' ? -1 : 1;
+      if (va > vb) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [sites, sort]);
+
+  const handleSort = (key) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+
+  const selectedSite = sites.find((s) => s.id === selectedId) || null;
+
+  // --- Création / édition complète ---
+  const saveSite = async (data) => {
+    const isEdit = !!data.id;
+    try {
+      const res = await fetch(`${API}/sites${isEdit ? '/' + data.id : ''}`, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchSites();
+        setModal(null);
+        if (isEdit) setSelectedId(json.data.id);
+        return { success: true };
+      }
+      return { success: false, error: json.error };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  };
+
+  // --- Mise à jour partielle (note interne, statut) ---
+  const updateSite = async (id, patch) => {
+    try {
+      const res = await fetch(`${API}/sites/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      });
+      const json = await res.json();
+      if (json.success) {
+        setSites((prev) => prev.map((s) => (s.id === id ? json.data : s)));
+      }
+      return json;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  };
+
+  const deleteSite = async (id) => {
+    if (!window.confirm('Supprimer définitivement ce site et son historique ?')) return;
+    try {
+      const res = await fetch(`${API}/sites/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.success) {
+        setSelectedId(null);
+        fetchSites();
+      }
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-cream text-marine">
+      {/* Header */}
+      <header className="sticky top-0 z-20 bg-white border-b border-gray-200">
+        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-marine flex items-center justify-center text-amber font-extrabold text-lg">
+              T
+            </div>
+            <div>
+              <h1 className="text-lg font-extrabold leading-tight">TransacPharma</h1>
+              <p className="text-xs text-gray-500 leading-tight">
+                Prospection officines · galeries marchandes
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={`${API}/export/csv`}
+              className="px-3.5 py-2 text-sm font-semibold rounded-lg border border-gray-300 text-marine hover:bg-gray-50 transition"
+            >
+              ⬇ Exporter CSV
+            </a>
+            <button
+              onClick={() => setModal({ mode: 'new' })}
+              className="px-3.5 py-2 text-sm font-semibold rounded-lg bg-marine text-white hover:bg-[#262640] transition"
+            >
+              + Nouveau site
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1600px] mx-auto px-6 py-6">
+        <KpiBar sites={sites} onFilterStatut={(statut) => setFilters((f) => ({ ...f, statut }))} />
+
+        <Filtres
+          filters={filters}
+          setFilters={setFilters}
+          search={search}
+          setSearch={setSearch}
+          count={sites.length}
+        />
+
+        {error && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        <TableauProspection
+          sites={sorted}
+          sort={sort}
+          onSort={handleSort}
+          onRowClick={(id) => setSelectedId(id)}
+          loading={loading}
+        />
+      </main>
+
+      {selectedSite && (
+        <FicheDetail
+          site={selectedSite}
+          api={API}
+          onClose={() => setSelectedId(null)}
+          onUpdate={updateSite}
+          onEdit={() => setModal({ mode: 'edit', site: selectedSite })}
+          onDelete={deleteSite}
+        />
+      )}
+
+      {modal && (
+        <ModalEdition
+          mode={modal.mode}
+          site={modal.site}
+          onClose={() => setModal(null)}
+          onSave={saveSite}
+        />
+      )}
+    </div>
+  );
+}
