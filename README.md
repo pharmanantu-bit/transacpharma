@@ -58,7 +58,22 @@ Toutes les réponses sont au format JSON avec un champ `success: true/false`.
 | GET     | `/api/sites/:id/actions`    | Historique des actions d'un site         |
 | POST    | `/api/sites/:id/actions`    | Ajouter une action                       |
 | POST    | `/api/sites/:id/enrich`     | Enrichissement société via SIREN (Pappers) |
+| POST    | `/api/sites/batch`          | Import en masse (depuis la Découverte)   |
+| GET     | `/api/discovery/departements` | Liste des départements (sélecteur)     |
+| POST    | `/api/discovery/scan`       | Scan d'opportunités par département(s)    |
 | GET     | `/api/export/csv`           | Export CSV complet (avec score)          |
+
+## Découverte d'opportunités
+
+Onglet **Découverte** : scanne un ou plusieurs départements (partout en France) pour trouver les **centres commerciaux avec galerie + hypermarché** (Carrefour, Auchan, Leclerc, Géant, Cora, Intermarché, Hyper U) et indiquer si une **pharmacie existe déjà** à proximité (rayon configurable, défaut 300 m).
+
+Chaque centre est classé :
+- 🟢 **Création** — galerie + hyper *sans* pharmacie (ouvrir une officine) ;
+- 🎯 **Acquisition** — pharmacie existante (cible de rachat), avec son SIREN quand il est retrouvé.
+
+Sélectionne des résultats puis « Ajouter la sélection à la prospection » : ils rejoignent le tableau, scorés automatiquement, et les cibles avec SIREN sont enrichissables via Pappers.
+
+Sources **gratuites, sans clé** : OpenStreetMap (Overpass) pour les centres/pharmacies, `recherche-entreprises.api.gouv.fr` pour le SIREN. Limite : max 5 départements par scan (~30 s chacun) pour respecter les quotas Overpass.
 
 ## Scoring d'opportunité
 

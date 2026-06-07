@@ -128,6 +128,85 @@ router.post('/sites', (req, res) => {
   }
 });
 
+// POST /api/sites/batch — import en masse (depuis la Découverte)
+router.post('/sites/batch', (req, res) => {
+  try {
+    const b = req.body || {};
+    const sites = Array.isArray(b.sites) ? b.sites : [];
+    if (sites.length === 0) {
+      return res.status(400).json({ success: false, error: 'Aucun site à importer' });
+    }
+    const now = new Date().toISOString();
+
+    // Déduplication applicative (nom + ville) en plus de l'index unique osm_id
+    const existing = db.prepare('SELECT cc, ville FROM sites').all();
+    const key = (cc, ville) => `${(cc || '').toLowerCase().trim()}|${(ville || '').toLowerCase().trim()}`;
+    const seen = new Set(existing.map((r) => key(r.cc, r.ville)));
+
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO sites
+        (cc, ville, departement, enseigne, siren, pharmacie, statut, remarques, note_interne,
+         latitude, longitude, osm_id, source, opportunite_type, date_maj, created_at)
+      VALUES
+        (@cc, @ville, @departement, @enseigne, @siren, @pharmacie, @statut, @remarques, '',
+         @latitude, @longitude, @osm_id, @source, @opportunite_type, @date_maj, @created_at)
+    `);
+
+    const insertedIds = [];
+    let skipped = 0;
+    const tx = db.transaction((rows) => {
+      for (const r of rows) {
+        const cc = (r.cc || '').toString().trim();
+        if (!cc) { skipped++; continue; }
+        const ville = (r.ville || '').toString().trim();
+        const k = key(cc, ville);
+        if (seen.has(k)) { skipped++; continue; }
+
+        const dist = r.pharmacie_distance_m;
+        const remarques = r.remarques
+          ? String(r.remarques)
+          : `Découverte OSM · ${r.opportunite_type === 'creation' ? 'opportunité création' : 'pharmacie existante'}` +
+            (dist != null ? ` · pharmacie à ${dist} m` : '');
+
+        const info = insert.run({
+          cc,
+          ville,
+          departement: (r.departement || '').toString(),
+          enseigne: (r.enseigne || '').toString(),
+          siren: (r.siren || '').toString(),
+          pharmacie: (r.pharmacie || r.pharmacie_nom || '').toString(),
+          statut: r.statut || (r.opportunite_type === 'creation' ? 'opp' : 'todo'),
+          remarques,
+          latitude: typeof r.latitude === 'number' ? r.latitude : parseFloat(r.latitude) || null,
+          longitude: typeof r.longitude === 'number' ? r.longitude : parseFloat(r.longitude) || null,
+          osm_id: r.osm_id ? String(r.osm_id) : null,
+          source: r.source || 'discovery',
+          opportunite_type: r.opportunite_type || '',
+          date_maj: now,
+          created_at: now
+        });
+        if (info.changes > 0) {
+          insertedIds.push(info.lastInsertRowid);
+          seen.add(k);
+        } else {
+          skipped++; // bloqué par l'index unique osm_id
+        }
+      }
+    });
+    tx(sites);
+
+    const rows = insertedIds.length
+      ? db
+          .prepare(`SELECT * FROM sites WHERE id IN (${insertedIds.map(() => '?').join(',')})`)
+          .all(...insertedIds)
+          .map(withScore)
+      : [];
+    res.status(201).json({ success: true, inserted: insertedIds.length, skipped, sites: rows });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // PUT /api/sites/:id — mise à jour (partielle ou complète)
 router.put('/sites/:id', (req, res) => {
   try {

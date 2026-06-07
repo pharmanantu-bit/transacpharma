@@ -10,6 +10,12 @@ export const STATUTS = {
 
 export const STATUT_ORDER = ['cible', 'surveiller', 'todo', 'opp', 'ok', 'exclu'];
 
+// Types d'opportunité (Découverte)
+export const OPPORTUNITY_TYPES = {
+  creation: { label: 'Création', emoji: '🟢', bg: '#DDF3E1', text: '#166534' },
+  acquisition: { label: 'Acquisition', emoji: '🎯', bg: '#FDEBC8', text: '#92400E' }
+};
+
 // Niveaux de score d'opportunité (renvoyés par l'API : score_label)
 export const SCORE_LEVELS = {
   Chaud: { label: 'Chaud', emoji: '🔥', bg: '#FCE0E0', text: '#B91C1C' },

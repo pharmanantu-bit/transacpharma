@@ -73,10 +73,16 @@ function computeScore(site) {
     reasons.push('Sous surveillance');
   }
 
-  // 4. Pas de pharmacie à racheter (emplacement à créer) → autre métier
+  // 4. Pas de pharmacie existante
   if (isSansPharmacie(site)) {
-    score = Math.round(score * 0.3);
-    reasons.push('Pas de pharmacie existante (emplacement, pas un rachat)');
+    if (site.opportunite_type === 'creation') {
+      // Galerie + hypermarché SANS pharmacie = opportunité de création (cible recherchée)
+      score += 30;
+      reasons.push('Galerie + hyper sans pharmacie : opportunité de création');
+    } else {
+      score = Math.round(score * 0.3);
+      reasons.push('Pas de pharmacie existante (emplacement, pas un rachat)');
+    }
   }
 
   // 5. Réseau Apothical (récent / structuré) → peu pertinent pour un rachat

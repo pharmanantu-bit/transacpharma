@@ -4,6 +4,8 @@ import Filtres from './components/Filtres';
 import TableauProspection from './components/TableauProspection';
 import FicheDetail from './components/FicheDetail';
 import ModalEdition from './components/ModalEdition';
+import Tabs from './components/Tabs';
+import Decouverte from './components/Decouverte';
 import { ageNumber } from './constants';
 
 const API = '/api';
@@ -19,6 +21,7 @@ export default function App() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null); // { mode: 'new' | 'edit', site? }
+  const [activeTab, setActiveTab] = useState('prospection');
 
   const fetchSites = useCallback(async () => {
     setLoading(true);
@@ -164,29 +167,44 @@ export default function App() {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-6 py-6">
-        <KpiBar sites={sites} onFilterStatut={(statut) => setFilters((f) => ({ ...f, statut }))} />
-
-        <Filtres
-          filters={filters}
-          setFilters={setFilters}
-          search={search}
-          setSearch={setSearch}
-          count={sites.length}
+        <Tabs
+          active={activeTab}
+          onChange={setActiveTab}
+          tabs={[
+            { key: 'prospection', label: 'Prospection' },
+            { key: 'decouverte', label: '✨ Découverte' }
+          ]}
         />
 
-        {error && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-            {error}
-          </div>
+        {activeTab === 'prospection' && (
+          <>
+            <KpiBar sites={sites} onFilterStatut={(statut) => setFilters((f) => ({ ...f, statut }))} />
+
+            <Filtres
+              filters={filters}
+              setFilters={setFilters}
+              search={search}
+              setSearch={setSearch}
+              count={sites.length}
+            />
+
+            {error && (
+              <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+
+            <TableauProspection
+              sites={sorted}
+              sort={sort}
+              onSort={handleSort}
+              onRowClick={(id) => setSelectedId(id)}
+              loading={loading}
+            />
+          </>
         )}
 
-        <TableauProspection
-          sites={sorted}
-          sort={sort}
-          onSort={handleSort}
-          onRowClick={(id) => setSelectedId(id)}
-          loading={loading}
-        />
+        {activeTab === 'decouverte' && <Decouverte onImported={fetchSites} />}
       </main>
 
       {selectedSite && (

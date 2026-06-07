@@ -5,6 +5,7 @@ const fs = require('fs');
 const { initDb } = require('./db');
 const sitesRouter = require('./routes/sites');
 const actionsRouter = require('./routes/actions');
+const discoveryRouter = require('./routes/discovery');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +18,7 @@ initDb();
 // --- API ---
 app.use('/api', actionsRouter); // routes /sites/:id/actions montées en premier
 app.use('/api', sitesRouter);
+app.use('/api', discoveryRouter);
 
 app.get('/api/health', (req, res) => res.json({ success: true, data: { status: 'ok' } }));
 

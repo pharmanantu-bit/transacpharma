@@ -83,6 +83,20 @@ function initDb() {
   };
   ['capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires', 'enriched_at'].forEach(ensureCol);
 
+  // Migration : colonnes de découverte / géolocalisation
+  const ensureTypedCol = (name, type) => {
+    if (!existingCols.includes(name)) {
+      db.exec(`ALTER TABLE sites ADD COLUMN ${name} ${type}`);
+    }
+  };
+  ensureTypedCol('latitude', 'REAL');
+  ensureTypedCol('longitude', 'REAL');
+  ensureTypedCol('ville', "TEXT DEFAULT ''");
+  ensureTypedCol('source', "TEXT DEFAULT 'manuel'");
+  ensureTypedCol('osm_id', 'TEXT');
+  ensureTypedCol('opportunite_type', "TEXT DEFAULT ''");
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_osm ON sites(osm_id) WHERE osm_id IS NOT NULL');
+
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM sites').get();
   if (n === 0) {
     const now = new Date().toISOString();
