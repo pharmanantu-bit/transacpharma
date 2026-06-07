@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3000'
+      // Cible de l'API surchargée par API_PROXY (défaut : serveur local sur 3000)
+      '/api': process.env.API_PROXY || 'http://localhost:3000'
     }
   },
   build: {
