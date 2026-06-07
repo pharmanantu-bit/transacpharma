@@ -204,7 +204,9 @@ export default function Decouverte({ onImported }) {
           {/* Paramètres + bouton */}
           <div className="lg:w-56 flex flex-col gap-3">
             <div>
-              <label className="text-xs font-semibold text-gray-500">Rayon pharmacie (m)</label>
+              <label className="text-xs font-semibold text-gray-500">
+                Rayon autour du centre (m)
+              </label>
               <input
                 type="number"
                 min="50"
@@ -214,6 +216,9 @@ export default function Decouverte({ onImported }) {
                 onChange={(e) => setRadius(e.target.value)}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300"
               />
+              <p className="text-[11px] text-gray-400 mt-1 leading-snug">
+                En mètres : la galerie elle-même, pas la ville (défaut 300 m).
+              </p>
             </div>
             <button
               onClick={runScan}
