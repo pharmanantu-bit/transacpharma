@@ -79,6 +79,8 @@ Sources **gratuites, sans clé** : OpenStreetMap (Overpass) pour les centres/pha
 
 **Détail d'un centre** : clique une ligne de résultat pour ouvrir une fiche complète (opérateur du centre, site web, horaires, adresse, hyper + distance, pharmacie : nom/tél/horaires/adresse/SIREN, liens OpenStreetMap & Google Maps). Tu peux alors l'ajouter à la prospection à l'unité, ou cocher plusieurs lignes et importer la sélection.
 
+> **Fréquentation annuelle** : non disponible dans OSM/les API entreprises (donnée marketing propriétaire des exploitants). La fiche l'affiche automatiquement via **Wikidata** (propriété « visiteurs par an ») quand le centre y est référencé — c'est rare ; sinon elle propose un lien de recherche.
+
 ## Scoring d'opportunité
 
 Chaque site reçoit automatiquement un **score 0-100** et un niveau (🔥 Chaud / 🟠 Tiède / ❄️ Froid / ⛔ Exclu), calculé côté serveur (`server/scoring.js`) à partir de :

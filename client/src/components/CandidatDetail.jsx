@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { OPPORTUNITY_TYPES } from '../constants';
 
 function Row({ label, value, href }) {
@@ -26,6 +27,55 @@ export default function CandidatDetail({ candidat, onClose, onImportOne, importi
   const d = c.details || {};
   const cfg = OPPORTUNITY_TYPES[c.opportunite_type] || OPPORTUNITY_TYPES.acquisition;
   const typeLabel = c.type === 'hyper_isole' ? 'Hypermarché (galerie probable)' : 'Centre commercial';
+
+  // Fréquentation annuelle : non présente dans OSM → on tente Wikidata (P1174)
+  // quand le centre y est référencé ; sinon on propose une recherche.
+  const [freq, setFreq] = useState(null); // null = aucune/non dispo, undefined = chargement, {amt,year} = trouvée
+  useEffect(() => {
+    const wd = d.centre && d.centre.wikidata;
+    if (!wd) {
+      setFreq(null);
+      return;
+    }
+    setFreq(undefined);
+    let cancelled = false;
+    fetch(
+      `https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${encodeURIComponent(
+        wd
+      )}&property=P1174&format=json&origin=*`
+    )
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const claims = (j.claims && j.claims.P1174) || [];
+        let best = null;
+        for (const cl of claims) {
+          const v = cl.mainsnak && cl.mainsnak.datavalue && cl.mainsnak.datavalue.value;
+          const amt = Number(v && v.amount);
+          if (!amt) continue;
+          const tq =
+            cl.qualifiers &&
+            cl.qualifiers.P585 &&
+            cl.qualifiers.P585[0] &&
+            cl.qualifiers.P585[0].datavalue &&
+            cl.qualifiers.P585[0].datavalue.value &&
+            cl.qualifiers.P585[0].datavalue.value.time;
+          const year = tq ? parseInt(tq.slice(1, 5), 10) : 0;
+          if (!best || year > best.year) best = { amt, year };
+        }
+        setFreq(best);
+      })
+      .catch(() => {
+        if (!cancelled) setFreq(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [c]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const searchFreqUrl = `https://www.google.com/search?q=${encodeURIComponent(
+    `${c.cc} ${(d.centre && d.centre.operator) || ''} fréquentation visiteurs par an`
+  )}`;
 
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
@@ -84,6 +134,26 @@ export default function CandidatDetail({ candidat, onClose, onImportOne, importi
               value={d.hyper && d.hyper.distance_m != null && d.hyper.distance_m > 0 ? `${d.hyper.distance_m} m` : null}
             />
             <Row label="Opérateur" value={d.centre && d.centre.operator} />
+            <div className="flex gap-3 py-1.5 border-b border-gray-100">
+              <span className="text-xs font-semibold text-gray-400 w-32 shrink-0 pt-0.5">
+                Fréquentation/an
+              </span>
+              <span className="text-sm">
+                {freq === undefined && <span className="text-gray-400">recherche…</span>}
+                {freq && freq.amt && (
+                  <span className="text-marine font-semibold">
+                    {freq.amt.toLocaleString('fr-FR')} visiteurs/an
+                    {freq.year ? ` (${freq.year})` : ''}
+                    <span className="font-normal text-gray-400"> · Wikidata</span>
+                  </span>
+                )}
+                {freq === null && (
+                  <a href={searchFreqUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                    non publique — rechercher
+                  </a>
+                )}
+              </span>
+            </div>
             <Row label="Adresse" value={d.centre && d.centre.adresse} />
             <Row label="Ville" value={c.ville && `${c.ville} ${c.code_postal || ''}`.trim()} />
             <Row label="Horaires" value={d.centre && d.centre.opening_hours} />

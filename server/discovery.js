@@ -281,7 +281,9 @@ function makeCandidat({ anchor, type, cc, enseigne, code, radius }, pharmaHit, h
       website: t.website || t['contact:website'] || '',
       opening_hours: t.opening_hours || '',
       phone: t.phone || t['contact:phone'] || '',
-      adresse: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ')
+      adresse: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '),
+      wikidata: t.wikidata || '',
+      wikipedia: t.wikipedia || ''
     },
     hyper: {
       nom: hyperTags.name || '',
