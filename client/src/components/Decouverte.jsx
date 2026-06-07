@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { OPPORTUNITY_TYPES } from '../constants';
+import CandidatDetail from './CandidatDetail';
 
 const API = '/api';
 const MAX_DEPS = 5;
@@ -21,6 +22,7 @@ export default function Decouverte({ onImported }) {
   const [depFilter, setDepFilter] = useState('');
   const [selectedDeps, setSelectedDeps] = useState([]);
   const [radius, setRadius] = useState(300);
+  const [forceRefresh, setForceRefresh] = useState(false);
 
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
@@ -29,6 +31,8 @@ export default function Decouverte({ onImported }) {
   const [selectedRows, setSelectedRows] = useState(() => new Set());
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
+  const [selectedCandidat, setSelectedCandidat] = useState(null);
+  const [importingOne, setImportingOne] = useState(false);
 
   useEffect(() => {
     fetch(`${API}/discovery/departements`)
@@ -63,6 +67,11 @@ export default function Decouverte({ onImported }) {
     [results]
   );
 
+  const cachedDeps = useMemo(
+    () => (results ? results.filter((r) => r.cached === true || r.cached === 'recompute').map((r) => r.departement) : []),
+    [results]
+  );
+
   const runScan = async () => {
     if (selectedDeps.length === 0) return;
     setScanning(true);
@@ -74,7 +83,11 @@ export default function Decouverte({ onImported }) {
       const res = await fetch(`${API}/discovery/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departements: selectedDeps, radius: Number(radius) })
+        body: JSON.stringify({
+          departements: selectedDeps,
+          radius: Number(radius),
+          force: forceRefresh
+        })
       });
       const json = await res.json();
       if (json.success) setResults(json.results);
@@ -129,6 +142,35 @@ export default function Decouverte({ onImported }) {
       setImportMsg({ type: 'err', text: e.message });
     } finally {
       setImporting(false);
+    }
+  };
+
+  const importOne = async (candidat) => {
+    setImportingOne(true);
+    setImportMsg(null);
+    try {
+      const res = await fetch(`${API}/sites/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sites: [candidat] })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setImportMsg({
+          type: 'ok',
+          text: json.inserted
+            ? `« ${candidat.cc} » ajouté à la prospection.`
+            : `« ${candidat.cc} » est déjà dans la prospection.`
+        });
+        setSelectedCandidat(null);
+        onImported && onImported();
+      } else {
+        setImportMsg({ type: 'err', text: json.error || 'Échec de l\'import' });
+      }
+    } catch (e) {
+      setImportMsg({ type: 'err', text: e.message });
+    } finally {
+      setImportingOne(false);
     }
   };
 
@@ -220,6 +262,14 @@ export default function Decouverte({ onImported }) {
                 En mètres : la galerie elle-même, pas la ville (défaut 300 m).
               </p>
             </div>
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={forceRefresh}
+                onChange={(e) => setForceRefresh(e.target.checked)}
+              />
+              Forcer un nouveau scan (ignorer le cache)
+            </label>
             <button
               onClick={runScan}
               disabled={scanning || selectedDeps.length === 0}
@@ -269,6 +319,13 @@ export default function Decouverte({ onImported }) {
             </div>
           )}
 
+          {cachedDeps.length > 0 && (
+            <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+              ⚡ Résultats instantanés depuis le cache : {cachedDeps.join(', ')}. Coche « Forcer un
+              nouveau scan » pour rafraîchir les données.
+            </div>
+          )}
+
           {importMsg && (
             <div
               className={`px-4 py-2 text-sm border-b ${
@@ -308,16 +365,22 @@ export default function Decouverte({ onImported }) {
                 {candidats.map((c, i) => (
                   <tr
                     key={c.osm_id}
-                    className={`border-b border-gray-100 ${i % 2 ? 'bg-[#FCFBF9]' : 'bg-white'}`}
+                    onClick={() => setSelectedCandidat(c)}
+                    title="Voir le détail"
+                    className={`border-b border-gray-100 cursor-pointer hover:bg-amber/5 ${
+                      i % 2 ? 'bg-[#FCFBF9]' : 'bg-white'
+                    }`}
                   >
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedRows.has(c.osm_id)}
                         onChange={() => toggleRow(c.osm_id)}
                       />
                     </td>
-                    <td className="px-3 py-2 font-medium">{c.cc || '—'}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {c.cc || '—'} <span className="text-gray-300">›</span>
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{c.ville || '—'}</td>
                     <td className="px-3 py-2 text-gray-500">{c.departement}</td>
                     <td className="px-3 py-2 text-gray-600">{c.enseigne || '—'}</td>
@@ -346,6 +409,17 @@ export default function Decouverte({ onImported }) {
             </table>
           </div>
         </section>
+      )}
+
+      {selectedCandidat && (
+        <CandidatDetail
+          candidat={selectedCandidat}
+          onClose={() => setSelectedCandidat(null)}
+          onImportOne={importOne}
+          importing={importingOne}
+          onToggleSelection={toggleRow}
+          selected={selectedRows.has(selectedCandidat.osm_id)}
+        />
       )}
     </div>
   );

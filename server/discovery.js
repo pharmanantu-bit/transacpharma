@@ -10,6 +10,8 @@ const OVERPASS_ENDPOINTS = [
 ];
 const RECHERCHE_API = 'https://recherche-entreprises.api.gouv.fr/search';
 
+const { db } = require('./db');
+
 // Liste des départements français (métropole + DOM)
 const DEPARTEMENTS = [
   ['01', 'Ain'], ['02', 'Aisne'], ['03', 'Allier'], ['04', 'Alpes-de-Haute-Provence'],
@@ -165,28 +167,19 @@ async function findPharmacieSiren(nom, codePostal, dep) {
   }
 }
 
-// --- Scan d'un département ---
-const scanCache = new Map(); // code -> { ts, candidats }
-const SCAN_TTL = 24 * 60 * 60 * 1000;
-
-async function scanDepartement(code, radius = 300) {
-  const cached = scanCache.get(code);
-  if (cached && Date.now() - cached.ts < SCAN_TTL) {
-    return { departement: code, status: 'ok', cached: true, candidats: cached.candidats };
-  }
-
+// --- Récupération OSM brute (partie lente : Overpass) ---
+async function fetchOSM(code) {
   // 3 requêtes séparées (plus légères, moins de load-shedding) avec pauses
   const mallEls = await runOverpass(areaQuery(code, Q_MALLS));
   await sleep(900);
   const superEls = await runOverpass(areaQuery(code, Q_SUPER));
   await sleep(900);
   const pharmaEls = await runOverpass(areaQuery(code, Q_PHARMA));
-  const elements = [...mallEls, ...superEls, ...pharmaEls];
 
   const malls = [];
   const hypers = [];
   const pharmacies = [];
-  for (const el of elements) {
+  for (const el of [...mallEls, ...superEls, ...pharmaEls]) {
     const tags = el.tags || {};
     const pos = coordOf(el);
     if (!pos) continue;
@@ -200,6 +193,12 @@ async function scanDepartement(code, radius = 300) {
       pharmacies.push(item);
     }
   }
+  return { malls, hypers, pharmacies };
+}
+
+// --- Construction des candidats (rapide) + confirmation SIREN ---
+async function buildCandidats(osm, code, radius) {
+  const { malls, hypers, pharmacies } = osm;
 
   const nearestPharma = (lat, lon) => {
     let best = null;
@@ -234,7 +233,7 @@ async function scanDepartement(code, radius = 300) {
       enseigne: brandLabel(nh.h.tags.name, nh.h.tags.brand),
       code,
       radius
-    }, nearestPharma(m.lat, m.lon)));
+    }, nearestPharma(m.lat, m.lon), nh));
   }
 
   // 2) Hypermarchés isolés (galerie souvent attenante, non taggée mall dans OSM)
@@ -247,7 +246,7 @@ async function scanDepartement(code, radius = 300) {
       enseigne: brandLabel(h.tags.name, h.tags.brand),
       code,
       radius
-    }, nearestPharma(h.lat, h.lon)));
+    }, nearestPharma(h.lat, h.lon), null));
   }
 
   // 3) Confirmation SIREN pour les candidats avec pharmacie (throttle, max 25)
@@ -264,18 +263,47 @@ async function scanDepartement(code, radius = 300) {
       await sleep(170);
     }
   }
-
-  scanCache.set(code, { ts: Date.now(), candidats });
-  return { departement: code, status: 'ok', cached: false, candidats };
+  return candidats;
 }
 
-function makeCandidat({ anchor, type, cc, enseigne, code, radius }, pharmaHit) {
+function makeCandidat({ anchor, type, cc, enseigne, code, radius }, pharmaHit, hyperHit) {
   const t = anchor.tags;
   const pt = pharmaHit ? pharmaHit.p.tags : {};
   // Les nœuds centre/hyper OSM manquent souvent d'adresse → on complète avec
   // celle de la pharmacie trouvée à proximité (utile pour l'affichage + le SIREN).
   const ville = t['addr:city'] || pt['addr:city'] || '';
   const codePostal = t['addr:postcode'] || pt['addr:postcode'] || '';
+  const hyperTags = hyperHit ? hyperHit.h.tags : type === 'hyper_isole' ? t : {};
+
+  const details = {
+    centre: {
+      operator: t.operator || t.brand || '',
+      website: t.website || t['contact:website'] || '',
+      opening_hours: t.opening_hours || '',
+      phone: t.phone || t['contact:phone'] || '',
+      adresse: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ')
+    },
+    hyper: {
+      nom: hyperTags.name || '',
+      enseigne,
+      distance_m: hyperHit ? hyperHit.d : type === 'hyper_isole' ? 0 : null
+    },
+    pharmacie: pharmaHit
+      ? {
+          nom: pt.name || '',
+          distance_m: pharmaHit.d,
+          phone: pt.phone || pt['contact:phone'] || '',
+          opening_hours: pt.opening_hours || '',
+          website: pt.website || pt['contact:website'] || '',
+          adresse: [pt['addr:housenumber'], pt['addr:street'], pt['addr:postcode'], pt['addr:city']]
+            .filter(Boolean)
+            .join(' ')
+        }
+      : null,
+    osm_url: `https://www.openstreetmap.org/${anchor.id}`,
+    maps_url: `https://www.google.com/maps/search/?api=1&query=${anchor.lat},${anchor.lon}`
+  };
+
   const c = {
     osm_id: anchor.id,
     cc: cc || 'Centre commercial',
@@ -287,11 +315,12 @@ function makeCandidat({ anchor, type, cc, enseigne, code, radius }, pharmaHit) {
     longitude: anchor.lon,
     type,
     pharmacie_presente: !!pharmaHit,
-    pharmacie_nom: pharmaHit ? pharmaHit.p.tags.name || '' : '',
+    pharmacie_nom: pharmaHit ? pt.name || '' : '',
     pharmacie_distance_m: pharmaHit ? pharmaHit.d : null,
     siren: '',
     opportunite_type: pharmaHit ? 'acquisition' : 'creation',
-    radius
+    radius,
+    details
   };
   finalizeStatut(c);
   return c;
@@ -302,16 +331,73 @@ function finalizeStatut(c) {
   else c.statut = c.siren ? 'cible' : 'todo';
 }
 
-async function scanDepartements(codes, radius = 300) {
+// --- Cache persistant en base (les données OSM changent rarement) ---
+const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 jours
+
+function readCache(code) {
+  return db.prepare('SELECT * FROM discovery_cache WHERE departement = ?').get(code);
+}
+function writeCache(code, osm, candidats, radius) {
+  db.prepare(`
+    INSERT INTO discovery_cache (departement, scanned_at, radius, osm_json, candidats_json)
+    VALUES (@departement, @scanned_at, @radius, @osm_json, @candidats_json)
+    ON CONFLICT(departement) DO UPDATE SET
+      scanned_at = excluded.scanned_at, radius = excluded.radius,
+      osm_json = excluded.osm_json, candidats_json = excluded.candidats_json
+  `).run({
+    departement: code,
+    scanned_at: new Date().toISOString(),
+    radius,
+    osm_json: JSON.stringify(osm),
+    candidats_json: JSON.stringify(candidats)
+  });
+}
+
+// Scan d'un département. Mode renvoyé dans `cached` :
+//   true        -> servi tel quel depuis le cache (instantané)
+//   'recompute' -> OSM en cache, recalcul rapide (rayon changé)
+//   false       -> requêtes Overpass effectuées
+async function scanDepartement(code, radius = 300, forceRefresh = false) {
+  const row = readCache(code);
+  const fresh = row && Date.now() - new Date(row.scanned_at).getTime() < CACHE_TTL;
+
+  if (row && fresh && !forceRefresh) {
+    if (row.radius === radius) {
+      return {
+        departement: code, status: 'ok', cached: true,
+        scanned_at: row.scanned_at, candidats: JSON.parse(row.candidats_json)
+      };
+    }
+    // Rayon différent : recalcul depuis l'OSM en cache (aucun appel Overpass)
+    const osm = JSON.parse(row.osm_json);
+    const candidats = await buildCandidats(osm, code, radius);
+    writeCache(code, osm, candidats, radius);
+    return { departement: code, status: 'ok', cached: 'recompute', scanned_at: row.scanned_at, candidats };
+  }
+
+  // Pas de cache / périmé / forcé : on interroge Overpass
+  const osm = await fetchOSM(code);
+  const candidats = await buildCandidats(osm, code, radius);
+  writeCache(code, osm, candidats, radius);
+  return {
+    departement: code, status: 'ok', cached: false,
+    scanned_at: new Date().toISOString(), candidats
+  };
+}
+
+async function scanDepartements(codes, radius = 300, forceRefresh = false) {
   const results = [];
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
+    let res;
     try {
-      results.push(await scanDepartement(code, radius));
+      res = await scanDepartement(code, radius, forceRefresh);
     } catch (e) {
-      results.push({ departement: code, status: 'error', error: e.message });
+      res = { departement: code, status: 'error', error: e.message };
     }
-    if (i < codes.length - 1) await sleep(1500); // respect des quotas Overpass
+    results.push(res);
+    // Pause anti-quota uniquement si on a réellement interrogé Overpass
+    if (i < codes.length - 1 && res.cached === false) await sleep(1500);
   }
   return results;
 }

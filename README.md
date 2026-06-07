@@ -75,6 +75,10 @@ Sélectionne des résultats puis « Ajouter la sélection à la prospection » :
 
 Sources **gratuites, sans clé** : OpenStreetMap (Overpass) pour les centres/pharmacies, `recherche-entreprises.api.gouv.fr` pour le SIREN. Limite : max 5 départements par scan (~30 s chacun) pour respecter les quotas Overpass.
 
+**Cache** : chaque département scanné est mémorisé en base (30 j). Un re-scan est **instantané** ; changer le rayon recalcule sans rappeler Overpass. Coche « Forcer un nouveau scan » pour rafraîchir les données.
+
+**Détail d'un centre** : clique une ligne de résultat pour ouvrir une fiche complète (opérateur du centre, site web, horaires, adresse, hyper + distance, pharmacie : nom/tél/horaires/adresse/SIREN, liens OpenStreetMap & Google Maps). Tu peux alors l'ajouter à la prospection à l'unité, ou cocher plusieurs lignes et importer la sélection.
+
 ## Scoring d'opportunité
 
 Chaque site reçoit automatiquement un **score 0-100** et un niveau (🔥 Chaud / 🟠 Tiède / ❄️ Froid / ⛔ Exclu), calculé côté serveur (`server/scoring.js`) à partir de :

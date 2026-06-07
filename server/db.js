@@ -72,6 +72,14 @@ function initDb() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_actions_site ON actions(site_id);
+
+    CREATE TABLE IF NOT EXISTS discovery_cache (
+      departement TEXT PRIMARY KEY,
+      scanned_at TEXT,
+      radius INTEGER,
+      osm_json TEXT,
+      candidats_json TEXT
+    );
   `);
 
   // Migration : colonnes d'enrichissement (ajoutées si absentes)

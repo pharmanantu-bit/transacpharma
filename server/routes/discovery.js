@@ -28,8 +28,9 @@ router.post('/discovery/scan', async (req, res) => {
     }
     let radius = parseInt(b.radius, 10);
     if (Number.isNaN(radius) || radius < 50 || radius > 1000) radius = 300;
+    const forceRefresh = !!(b.force || b.forceRefresh);
 
-    const results = await scanDepartements(codes, radius);
+    const results = await scanDepartements(codes, radius, forceRefresh);
     res.json({ success: true, results });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
