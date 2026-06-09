@@ -43,6 +43,40 @@ export function ageNumber(age) {
   return m ? parseInt(m[0], 10) : null;
 }
 
+// Date courte JJ/MM/AA (accepte 'YYYY-MM-DD' ou un ISO complet)
+export function formatDateShort(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(String(iso).length <= 10 ? iso + 'T00:00:00' : iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
+// Statut d'une relance par rapport à aujourd'hui.
+// kind : overdue (passée) | today | soon (≤ 7 j) | later
+export function relanceStatus(dateStr, now = new Date()) {
+  if (!dateStr) return null;
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((d - t0) / 86400000);
+  if (diff < 0) return { kind: 'overdue', days: diff, label: `Retard ${-diff} j` };
+  if (diff === 0) return { kind: 'today', days: 0, label: "Aujourd'hui" };
+  if (diff <= 7) return { kind: 'soon', days: diff, label: `Dans ${diff} j` };
+  return { kind: 'later', days: diff, label: `Dans ${diff} j` };
+}
+
+// Styles des pastilles de relance (réutilisés Kanban + panneau + fiche)
+export const RELANCE_STYLE = {
+  overdue: { bg: '#FEE2E2', text: '#B91C1C', dot: '#DC2626' },
+  today: { bg: '#FEF3C7', text: '#92400E', dot: '#D97706' },
+  soon: { bg: '#FEF9C3', text: '#854D0E', dot: '#CA8A04' },
+  later: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' }
+};
+
 export function formatDate(iso) {
   if (!iso) return '';
   try {

@@ -91,6 +91,9 @@ function initDb() {
   };
   ['capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires', 'enriched_at'].forEach(ensureCol);
 
+  // Migration : relance / rappel (date au format YYYY-MM-DD + note courte)
+  ['relance_at', 'relance_note'].forEach(ensureCol);
+
   // Migration : colonnes de découverte / géolocalisation
   const ensureTypedCol = (name, type) => {
     if (!existingCols.includes(name)) {

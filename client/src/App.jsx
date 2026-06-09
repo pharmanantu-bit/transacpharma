@@ -6,6 +6,8 @@ import FicheDetail from './components/FicheDetail';
 import ModalEdition from './components/ModalEdition';
 import Tabs from './components/Tabs';
 import Decouverte from './components/Decouverte';
+import PipelineKanban from './components/PipelineKanban';
+import RelancesPanel from './components/RelancesPanel';
 import { ageNumber } from './constants';
 
 const API = '/api';
@@ -172,9 +174,14 @@ export default function App() {
           onChange={setActiveTab}
           tabs={[
             { key: 'prospection', label: 'Prospection' },
+            { key: 'pipeline', label: '📋 Pipeline' },
             { key: 'decouverte', label: '✨ Découverte' }
           ]}
         />
+
+        {(activeTab === 'prospection' || activeTab === 'pipeline') && (
+          <RelancesPanel sites={sites} onOpen={(id) => setSelectedId(id)} />
+        )}
 
         {activeTab === 'prospection' && (
           <>
@@ -200,6 +207,25 @@ export default function App() {
               onSort={handleSort}
               onRowClick={(id) => setSelectedId(id)}
               loading={loading}
+            />
+          </>
+        )}
+
+        {activeTab === 'pipeline' && (
+          <>
+            {error && (
+              <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mb-3">
+              Glissez-déposez une carte d'une colonne à l'autre pour changer son statut. Le score et les
+              relances sont mis à jour automatiquement.
+            </p>
+            <PipelineKanban
+              sites={sites}
+              onCardClick={(id) => setSelectedId(id)}
+              onMoveStatut={(id, statut) => updateSite(id, { statut })}
             />
           </>
         )}

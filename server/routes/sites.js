@@ -5,7 +5,8 @@ const { computeScore } = require('../scoring');
 
 const FIELDS = [
   'cc', 'departement', 'enseigne', 'siren', 'pharmacie',
-  'dirigeant', 'age', 'groupement', 'statut', 'remarques', 'note_interne'
+  'dirigeant', 'age', 'groupement', 'statut', 'remarques', 'note_interne',
+  'relance_at', 'relance_note'
 ];
 
 // Ajoute le score calculé à une ligne renvoyée par l'API
@@ -418,6 +419,7 @@ router.get('/export/csv', (req, res) => {
       'id', 'cc', 'departement', 'enseigne', 'siren', 'pharmacie',
       'dirigeant', 'age', 'groupement', 'statut', 'score', 'score_label',
       'capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires',
+      'relance_at', 'relance_note',
       'remarques', 'note_interne', 'enriched_at', 'date_maj', 'created_at'
     ];
     const escape = (v) => {

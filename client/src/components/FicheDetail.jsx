@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { STATUTS, STATUT_ORDER, ACTION_TYPES, ageNumber, formatDate } from '../constants';
+import { STATUTS, STATUT_ORDER, ACTION_TYPES, ageNumber, formatDate, relanceStatus, RELANCE_STYLE } from '../constants';
 import { Badge, ScoreBadge } from './TableauProspection';
 import HistoriqueActions from './HistoriqueActions';
 
@@ -26,13 +26,21 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
   const [enriching, setEnriching] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState(null); // { type: 'ok'|'err', text }
 
+  const [relanceAt, setRelanceAt] = useState(site.relance_at || '');
+  const [relanceNote, setRelanceNote] = useState(site.relance_note || '');
+  const [relanceSaved, setRelanceSaved] = useState(false);
+
   const debounceRef = useRef(null);
+  const relanceDebounceRef = useRef(null);
   const ageSenior = ageNumber(site.age) != null && ageNumber(site.age) >= 60;
 
   // Recharge la note quand on change de site
   useEffect(() => {
     setNote(site.note_interne || '');
     setNoteStatus('idle');
+    setRelanceAt(site.relance_at || '');
+    setRelanceNote(site.relance_note || '');
+    setRelanceSaved(false);
   }, [site.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadActions = useCallback(async () => {
@@ -65,6 +73,35 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
   const changeStatut = async (statut) => {
     setShowStatutMenu(false);
     await onUpdate(site.id, { statut });
+  };
+
+  const flashRelanceSaved = () => {
+    setRelanceSaved(true);
+    setTimeout(() => setRelanceSaved(false), 1500);
+  };
+
+  // Date de relance : enregistrement immédiat (choix discret)
+  const onRelanceDateChange = async (val) => {
+    setRelanceAt(val);
+    await onUpdate(site.id, { relance_at: val });
+    flashRelanceSaved();
+  };
+
+  // Note de relance : enregistrement différé (debounce 700ms)
+  const onRelanceNoteChange = (val) => {
+    setRelanceNote(val);
+    if (relanceDebounceRef.current) clearTimeout(relanceDebounceRef.current);
+    relanceDebounceRef.current = setTimeout(async () => {
+      await onUpdate(site.id, { relance_note: val });
+      flashRelanceSaved();
+    }, 700);
+  };
+
+  const clearRelance = async () => {
+    setRelanceAt('');
+    setRelanceNote('');
+    await onUpdate(site.id, { relance_at: '', relance_note: '' });
+    flashRelanceSaved();
   };
 
   const handleEnrich = async () => {
@@ -271,6 +308,54 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
               rows={4}
               className="w-full text-sm rounded-lg border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-amber/40 focus:border-amber resize-y"
             />
+          </section>
+
+          {/* Relance / rappel */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                ⏰ Relance / rappel
+              </h3>
+              <span className="text-xs text-gray-400">{relanceSaved && '✓ Enregistré'}</span>
+            </div>
+            {(() => {
+              const st = relanceStatus(relanceAt);
+              return (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="date"
+                      value={relanceAt ? String(relanceAt).slice(0, 10) : ''}
+                      onChange={(e) => onRelanceDateChange(e.target.value)}
+                      className="px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber/40 focus:border-amber"
+                    />
+                    {st && (
+                      <span
+                        className="text-xs font-semibold px-2 py-1 rounded-lg"
+                        style={{ backgroundColor: RELANCE_STYLE[st.kind].bg, color: RELANCE_STYLE[st.kind].text }}
+                      >
+                        {st.label}
+                      </span>
+                    )}
+                    {relanceAt && (
+                      <button
+                        onClick={clearRelance}
+                        className="text-xs text-gray-400 hover:text-red-600 ml-auto"
+                      >
+                        Effacer
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={relanceNote}
+                    onChange={(e) => onRelanceNoteChange(e.target.value)}
+                    placeholder="Objet du rappel (ex : rappeler le dirigeant, relancer après visite)…"
+                    className="w-full mt-2 px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber/40 focus:border-amber"
+                  />
+                </>
+              );
+            })()}
           </section>
 
           {/* Historique */}
