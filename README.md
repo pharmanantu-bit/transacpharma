@@ -13,18 +13,46 @@ Suivi des cibles, fiches détaillées, notes internes, historique d'actions, KPI
 
 ## Démarrage rapide (développement)
 
+### Windows — le plus simple : `start.ps1`
+
+```powershell
+.\start.ps1
+```
+
+Le script installe les dépendances au premier lancement, démarre serveur + client sur le **port 3002** et ouvre http://localhost:5173 dans le navigateur. (Clic droit sur `start.ps1` > « Exécuter avec PowerShell » fonctionne aussi.)
+
+### Manuel (toutes plateformes)
+
 ```bash
 # 1. Installer les dépendances (racine + client)
 npm run install:all
 
-# 2. Lancer serveur (port 3000) + client Vite (port 5173) en parallèle
+# 2. Lancer serveur + client Vite (port 5173) en parallèle
 npm run dev
 ```
 
-- API : http://localhost:3000/api
 - Front (dev, avec hot-reload) : http://localhost:5173 — le proxy Vite redirige `/api` vers le serveur.
+- API : http://localhost:3000/api par défaut.
+
+> **Port 3002** : si le 3000 est déjà occupé par un autre projet, lance avec
+> `$env:PORT="3002"; $env:API_PROXY="http://localhost:3002"; npm run dev` (PowerShell)
+> ou `PORT=3002 API_PROXY=http://localhost:3002 npm run dev` (bash). C'est ce que fait `start.ps1`.
 
 La base `db/pharma.db` est créée automatiquement au premier lancement et remplie avec les 29 sites de prospection (seed unique : uniquement si la table est vide).
+
+## Reprendre le projet sur un autre poste
+
+Le **code** est sur GitHub ; la **base de données** (`db/*.db`) et le **`.env`** sont locaux à chaque machine (ignorés par Git).
+
+```powershell
+git clone https://github.com/pharmanantu-bit/transacpharma.git
+cd transacpharma
+.\start.ps1          # installe tout puis lance sur le 3002
+```
+
+- Tu repars d'une base **neuve** (29 sites de seed) : tes données saisies sur l'autre poste ne sont pas transférées (la donnée locale ne voyage pas avec Git).
+- L'enrichissement SIREN marche sans configuration ; pour le bonus Pappers, recopie `.env.example` en `.env` et remets ta clé.
+- Réflexe : `git pull` au début d'une session, `git push` à la fin pour faire circuler le code entre les postes.
 
 ## Production (Docker)
 
@@ -81,6 +109,14 @@ Sources **gratuites, sans clé** : OpenStreetMap (Overpass) pour les centres/pha
 
 > **Fréquentation annuelle** : non disponible dans OSM/les API entreprises (donnée marketing propriétaire des exploitants). La fiche l'affiche automatiquement via **Wikidata** (propriété « visiteurs par an ») quand le centre y est référencé — c'est rare ; sinon elle propose un lien de recherche.
 
+## Pipeline (Kanban) & relances
+
+Onglet **📋 Pipeline** : vue Kanban avec une colonne par statut (Cible, À surveiller, À confirmer, Opportunité, OK, Exclu). Les cartes sont triées par score décroissant et affichent CC, enseigne/département, dirigeant (âge en rouge si ≥ 60 ans), score et relance éventuelle.
+
+**Glisser-déposer** une carte d'une colonne à l'autre change son statut — le score est recalculé automatiquement.
+
+**Relances / rappels** : chaque fiche a une section « ⏰ Relance / rappel » (date + note, sauvegarde automatique). Un bandeau **« Relances à traiter »** s'affiche en haut des onglets Prospection et Pipeline ; il liste les rappels en retard, du jour et des 7 prochains jours, triés par urgence et cliquables. La date de relance figure aussi dans l'export CSV.
+
 ## Scoring d'opportunité
 
 Chaque site reçoit automatiquement un **score 0-100** et un niveau (🔥 Chaud / 🟠 Tiède / ❄️ Froid / ⛔ Exclu), calculé côté serveur (`server/scoring.js`) à partir de :
@@ -128,7 +164,8 @@ transacpharma/
 │   ├── index.js
 │   ├── db.js            # Init + seed
 │   └── routes/
-├── db/                  # Base SQLite (créée automatiquement)
+├── db/                  # Base SQLite (créée automatiquement, ignorée par Git)
+├── start.ps1            # Démarrage rapide Windows (install + lance sur le 3002)
 ├── Dockerfile
 ├── docker-compose.yml
 └── package.json
