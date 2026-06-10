@@ -8,8 +8,8 @@ Suivi des cibles, fiches détaillées, notes internes, historique d'actions, KPI
 
 - **Frontend** : React 18 + Vite + TailwindCSS (CSS pur, aucun framework UI externe)
 - **Backend** : Node.js + Express
-- **Base de données** : SQLite via `better-sqlite3` — fichier local `db/pharma.db`
-- **Déploiement** : Docker (multi-stage) + docker-compose
+- **Base de données** : libSQL via `@libsql/client` — fichier local `db/pharma.db` en dev, **Turso (cloud, gratuit)** en production
+- **Déploiement** : Docker (multi-stage) — hébergement gratuit Render + Turso
 
 ## Démarrage rapide (développement)
 
@@ -72,23 +72,34 @@ npm run build      # compile le front dans client/dist
 npm start          # sert le tout sur http://localhost:3000
 ```
 
-## Déploiement en ligne (Render)
+## Déploiement en ligne (gratuit : Render + Turso)
 
-Le dépôt contient un blueprint `render.yaml` prêt à l'emploi (Docker + disque
-persistant pour la base SQLite).
+La base est hébergée sur **Turso** (libSQL cloud, gratuit) ; l'app tourne sur
+l'offre **gratuite** de Render. Aucun disque payant nécessaire.
 
-1. Pousser le code sur GitHub (déjà fait).
-2. Sur [dashboard.render.com](https://dashboard.render.com) → **New +** → **Blueprint**,
-   connecter le dépôt `transacpharma`. Render lit `render.yaml` automatiquement.
-3. Renseigner les variables marquées « secret » :
-   - **`APP_PASSWORD`** — le mot de passe partagé d'accès (obligatoire).
+### 1. Créer la base Turso
+
+1. Compte gratuit sur [turso.tech](https://turso.tech).
+2. Créer une base (**Create Database**), région proche (Paris/Frankfurt).
+3. Récupérer **l'URL de connexion** (`libsql://…`) et générer un **token**.
+
+### 2. Déployer sur Render
+
+1. Sur [dashboard.render.com](https://dashboard.render.com) → **New +** →
+   **Blueprint**, connecter le dépôt `transacpharma`. Render lit `render.yaml`.
+2. Renseigner les variables secrètes :
+   - **`APP_PASSWORD`** — mot de passe partagé d'accès (obligatoire).
+   - **`TURSO_DATABASE_URL`** — l'URL `libsql://…` de Turso.
+   - **`TURSO_AUTH_TOKEN`** — le token Turso.
    - `PAPPERS_API_TOKEN` — optionnel (bonus Pappers).
-4. Déployer. L'app est servie en HTTPS sur `https://transacpharma.onrender.com`
-   (ou un domaine perso).
+3. Déployer. L'app est servie en HTTPS sur `https://transacpharma.onrender.com`.
 
-> 💡 Le **disque persistant** (qui conserve `db/pharma.db` entre les
-> redéploiements) nécessite un plan payant **Starter (~7 $/mois)**. L'offre
-> gratuite réinitialiserait la base à chaque déploiement.
+> ℹ️ Sur l'offre gratuite, le service se met en veille après ~15 min
+> d'inactivité (réveil en ~30 s au prochain accès). **Les données ne sont pas
+> perdues** : elles vivent dans Turso, indépendamment de Render.
+
+> 💾 La base Turso démarre vide (29 sites de seed). Pour y transférer ta base
+> locale, voir « Migrer ses données locales vers Turso » ci-dessous.
 
 ### Authentification
 
@@ -97,6 +108,20 @@ identifiant + mot de passe (Basic Auth, fenêtre du navigateur à l'ouverture).
 Identifiant par défaut `apothical` (modifiable via `APP_USER`).
 
 En local, laisse `APP_PASSWORD` vide : l'accès reste direct, sans login.
+
+### Migrer ses données locales vers Turso
+
+La base Turso démarre vide. Pour y transférer les sites/actions saisis en local
+(`db/pharma.db`), lance une fois, après avoir créé la base Turso :
+
+```powershell
+$env:TURSO_DATABASE_URL="libsql://xxxxx.turso.io"
+$env:TURSO_AUTH_TOKEN="ton_token"
+node server/migrate-to-turso.js
+```
+
+Le script crée le schéma, vide les tables `sites`/`actions` côté Turso puis y
+copie tes données locales (ids préservés).
 
 ## API REST
 

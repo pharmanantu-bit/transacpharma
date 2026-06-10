@@ -1,14 +1,61 @@
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 
-// --- Emplacement de la base ---
-const dbDir = path.join(__dirname, '..', 'db');
-if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
-const dbPath = path.join(dbDir, 'pharma.db');
+// --- Connexion à la base ---
+// Production : Turso (libSQL cloud) via TURSO_DATABASE_URL (+ TURSO_AUTH_TOKEN).
+// Local : fichier SQLite db/pharma.db — aucune configuration requise.
+let client;
+if (process.env.TURSO_DATABASE_URL) {
+  client = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN
+  });
+} else {
+  const dbDir = path.join(__dirname, '..', 'db');
+  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+  const fileUrl = 'file:' + path.join(dbDir, 'pharma.db').replace(/\\/g, '/');
+  client = createClient({ url: fileUrl });
+}
 
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+// --- Couche de compatibilité better-sqlite3 → libSQL (async) ---
+// Conserve la forme `db.prepare(sql).all/get/run(...)` ; il suffit d'« awaiter ».
+// libSQL parle le même dialecte SQLite : les requêtes restent identiques.
+function buildArgs(params) {
+  // Un seul argument objet (non-tableau) => paramètres nommés (@nom).
+  if (
+    params.length === 1 &&
+    params[0] !== null &&
+    typeof params[0] === 'object' &&
+    !Array.isArray(params[0])
+  ) {
+    return params[0];
+  }
+  return params; // sinon paramètres positionnels (?)
+}
+
+const db = {
+  prepare(sql) {
+    return {
+      async all(...params) {
+        return (await client.execute({ sql, args: buildArgs(params) })).rows;
+      },
+      async get(...params) {
+        return (await client.execute({ sql, args: buildArgs(params) })).rows[0];
+      },
+      async run(...params) {
+        const r = await client.execute({ sql, args: buildArgs(params) });
+        return {
+          changes: Number(r.rowsAffected || 0),
+          lastInsertRowid: r.lastInsertRowid != null ? Number(r.lastInsertRowid) : undefined
+        };
+      }
+    };
+  },
+  exec(sql) {
+    return client.executeMultiple(sql);
+  }
+};
 
 // --- Données de seed (insérées uniquement si la table est vide) ---
 const SEED = [
@@ -43,8 +90,8 @@ const SEED = [
   { cc: "Leclerc Fontainebleau", departement: "77", enseigne: "Leclerc", siren: "", pharmacie: "", dirigeant: "", age: "", groupement: "", statut: "todo", remarques: "Pharmacies en ville · Pas de galerie Leclerc confirmée" }
 ];
 
-function initDb() {
-  db.exec(`
+async function initDb() {
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS sites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       cc TEXT,
@@ -83,62 +130,52 @@ function initDb() {
   `);
 
   // Migration : colonnes d'enrichissement (ajoutées si absentes)
-  const existingCols = db.prepare('PRAGMA table_info(sites)').all().map((c) => c.name);
-  const ensureCol = (name) => {
+  const existingCols = (await db.prepare('PRAGMA table_info(sites)').all()).map((c) => c.name);
+  const ensureCol = async (name) => {
     if (!existingCols.includes(name)) {
-      db.exec(`ALTER TABLE sites ADD COLUMN ${name} TEXT DEFAULT ''`);
+      await db.exec(`ALTER TABLE sites ADD COLUMN ${name} TEXT DEFAULT ''`);
     }
   };
-  ['capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires', 'enriched_at'].forEach(ensureCol);
+  for (const c of ['capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires', 'enriched_at']) {
+    await ensureCol(c);
+  }
 
   // Migration : relance / rappel (date au format YYYY-MM-DD + note courte)
-  ['relance_at', 'relance_note'].forEach(ensureCol);
+  for (const c of ['relance_at', 'relance_note']) await ensureCol(c);
 
   // Migration : colonnes de découverte / géolocalisation
-  const ensureTypedCol = (name, type) => {
+  const ensureTypedCol = async (name, type) => {
     if (!existingCols.includes(name)) {
-      db.exec(`ALTER TABLE sites ADD COLUMN ${name} ${type}`);
+      await db.exec(`ALTER TABLE sites ADD COLUMN ${name} ${type}`);
     }
   };
-  ensureTypedCol('latitude', 'REAL');
-  ensureTypedCol('longitude', 'REAL');
-  ensureTypedCol('ville', "TEXT DEFAULT ''");
-  ensureTypedCol('source', "TEXT DEFAULT 'manuel'");
-  ensureTypedCol('osm_id', 'TEXT');
-  ensureTypedCol('opportunite_type', "TEXT DEFAULT ''");
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_osm ON sites(osm_id) WHERE osm_id IS NOT NULL');
+  await ensureTypedCol('latitude', 'REAL');
+  await ensureTypedCol('longitude', 'REAL');
+  await ensureTypedCol('ville', "TEXT DEFAULT ''");
+  await ensureTypedCol('source', "TEXT DEFAULT 'manuel'");
+  await ensureTypedCol('osm_id', 'TEXT');
+  await ensureTypedCol('opportunite_type', "TEXT DEFAULT ''");
+  await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_osm ON sites(osm_id) WHERE osm_id IS NOT NULL');
 
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM sites').get();
-  if (n === 0) {
+  const { n } = await db.prepare('SELECT COUNT(*) AS n FROM sites').get();
+  if (Number(n) === 0) {
     const now = new Date().toISOString();
-    const insert = db.prepare(`
+    const sql = `
       INSERT INTO sites
         (cc, departement, enseigne, siren, pharmacie, dirigeant, age, groupement, statut, remarques, note_interne, date_maj, created_at)
       VALUES
-        (@cc, @departement, @enseigne, @siren, @pharmacie, @dirigeant, @age, @groupement, @statut, @remarques, @note_interne, @date_maj, @created_at)
-    `);
-    const insertMany = db.transaction((rows) => {
-      for (const r of rows) {
-        insert.run({
-          cc: r.cc || '',
-          departement: r.departement || '',
-          enseigne: r.enseigne || '',
-          siren: r.siren || '',
-          pharmacie: r.pharmacie || '',
-          dirigeant: r.dirigeant || '',
-          age: r.age || '',
-          groupement: r.groupement || '',
-          statut: r.statut || 'todo',
-          remarques: r.remarques || '',
-          note_interne: '',
-          date_maj: now,
-          created_at: now
-        });
-      }
-    });
-    insertMany(SEED);
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const stmts = SEED.map((r) => ({
+      sql,
+      args: [
+        r.cc || '', r.departement || '', r.enseigne || '', r.siren || '', r.pharmacie || '',
+        r.dirigeant || '', r.age || '', r.groupement || '', r.statut || 'todo', r.remarques || '',
+        '', now, now
+      ]
+    }));
+    await client.batch(stmts, 'write');
     console.log(`[db] Seed inséré : ${SEED.length} sites.`);
   }
 }
 
-module.exports = { db, initDb };
+module.exports = { db, client, initDb };

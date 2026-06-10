@@ -12,7 +12,7 @@
     "start": "node server/index.js"
   },
   "dependencies": {
-    "better-sqlite3": "^12.2.0",
+    "@libsql/client": "^0.17.3",
     "exceljs": "^4.4.0",
     "express": "^4.19.2"
   },

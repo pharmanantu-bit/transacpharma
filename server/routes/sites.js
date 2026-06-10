@@ -175,10 +175,10 @@ function filteredSitesQuery(query) {
 }
 
 // GET /api/sites — liste avec filtres optionnels (statut, enseigne, departement, q)
-router.get('/sites', (req, res) => {
+router.get('/sites', async (req, res) => {
   try {
     const { sql, params } = filteredSitesQuery(req.query);
-    const rows = db.prepare(sql).all(...params).map(withScore);
+    const rows = (await db.prepare(sql).all(...params)).map(withScore);
     res.json({ success: true, data: rows });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -186,9 +186,9 @@ router.get('/sites', (req, res) => {
 });
 
 // GET /api/sites/:id — détail
-router.get('/sites/:id', (req, res) => {
+router.get('/sites/:id', async (req, res) => {
   try {
-    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    const row = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ success: false, error: 'Site introuvable' });
     res.json({ success: true, data: withScore(row) });
   } catch (e) {
@@ -197,7 +197,7 @@ router.get('/sites/:id', (req, res) => {
 });
 
 // POST /api/sites — créer
-router.post('/sites', (req, res) => {
+router.post('/sites', async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.cc || !b.cc.trim()) {
@@ -214,8 +214,8 @@ router.post('/sites', (req, res) => {
       VALUES
         (@cc, @departement, @enseigne, @siren, @pharmacie, @dirigeant, @age, @groupement, @statut, @remarques, @note_interne, @date_maj, @created_at)
     `);
-    const info = stmt.run({ ...data, date_maj: now, created_at: now });
-    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(info.lastInsertRowid);
+    const info = await stmt.run({ ...data, date_maj: now, created_at: now });
+    const row = await db.prepare('SELECT * FROM sites WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json({ success: true, data: withScore(row) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -223,7 +223,7 @@ router.post('/sites', (req, res) => {
 });
 
 // POST /api/sites/batch — import en masse (depuis la Découverte)
-router.post('/sites/batch', (req, res) => {
+router.post('/sites/batch', async (req, res) => {
   try {
     const b = req.body || {};
     const sites = Array.isArray(b.sites) ? b.sites : [];
@@ -233,7 +233,7 @@ router.post('/sites/batch', (req, res) => {
     const now = new Date().toISOString();
 
     // Déduplication applicative (nom + ville) en plus de l'index unique osm_id
-    const existing = db.prepare('SELECT cc, ville FROM sites').all();
+    const existing = await db.prepare('SELECT cc, ville FROM sites').all();
     const key = (cc, ville) => `${(cc || '').toLowerCase().trim()}|${(ville || '').toLowerCase().trim()}`;
     const seen = new Set(existing.map((r) => key(r.cc, r.ville)));
 
@@ -248,52 +248,49 @@ router.post('/sites/batch', (req, res) => {
 
     const insertedIds = [];
     let skipped = 0;
-    const tx = db.transaction((rows) => {
-      for (const r of rows) {
-        const cc = (r.cc || '').toString().trim();
-        if (!cc) { skipped++; continue; }
-        const ville = (r.ville || '').toString().trim();
-        const k = key(cc, ville);
-        if (seen.has(k)) { skipped++; continue; }
+    for (const r of sites) {
+      const cc = (r.cc || '').toString().trim();
+      if (!cc) { skipped++; continue; }
+      const ville = (r.ville || '').toString().trim();
+      const k = key(cc, ville);
+      if (seen.has(k)) { skipped++; continue; }
 
-        const dist = r.pharmacie_distance_m;
-        const remarques = r.remarques
-          ? String(r.remarques)
-          : `Découverte OSM · ${r.opportunite_type === 'creation' ? 'opportunité création' : 'pharmacie existante'}` +
-            (dist != null ? ` · pharmacie à ${dist} m` : '');
+      const dist = r.pharmacie_distance_m;
+      const remarques = r.remarques
+        ? String(r.remarques)
+        : `Découverte OSM · ${r.opportunite_type === 'creation' ? 'opportunité création' : 'pharmacie existante'}` +
+          (dist != null ? ` · pharmacie à ${dist} m` : '');
 
-        const info = insert.run({
-          cc,
-          ville,
-          departement: (r.departement || '').toString(),
-          enseigne: (r.enseigne || '').toString(),
-          siren: (r.siren || '').toString(),
-          pharmacie: (r.pharmacie || r.pharmacie_nom || '').toString(),
-          statut: r.statut || (r.opportunite_type === 'creation' ? 'opp' : 'todo'),
-          remarques,
-          latitude: typeof r.latitude === 'number' ? r.latitude : parseFloat(r.latitude) || null,
-          longitude: typeof r.longitude === 'number' ? r.longitude : parseFloat(r.longitude) || null,
-          osm_id: r.osm_id ? String(r.osm_id) : null,
-          source: r.source || 'discovery',
-          opportunite_type: r.opportunite_type || '',
-          date_maj: now,
-          created_at: now
-        });
-        if (info.changes > 0) {
-          insertedIds.push(info.lastInsertRowid);
-          seen.add(k);
-        } else {
-          skipped++; // bloqué par l'index unique osm_id
-        }
+      const info = await insert.run({
+        cc,
+        ville,
+        departement: (r.departement || '').toString(),
+        enseigne: (r.enseigne || '').toString(),
+        siren: (r.siren || '').toString(),
+        pharmacie: (r.pharmacie || r.pharmacie_nom || '').toString(),
+        statut: r.statut || (r.opportunite_type === 'creation' ? 'opp' : 'todo'),
+        remarques,
+        latitude: typeof r.latitude === 'number' ? r.latitude : parseFloat(r.latitude) || null,
+        longitude: typeof r.longitude === 'number' ? r.longitude : parseFloat(r.longitude) || null,
+        osm_id: r.osm_id ? String(r.osm_id) : null,
+        source: r.source || 'discovery',
+        opportunite_type: r.opportunite_type || '',
+        date_maj: now,
+        created_at: now
+      });
+      if (info.changes > 0) {
+        insertedIds.push(info.lastInsertRowid);
+        seen.add(k);
+      } else {
+        skipped++; // bloqué par l'index unique osm_id
       }
-    });
-    tx(sites);
+    }
 
     const rows = insertedIds.length
-      ? db
+      ? (await db
           .prepare(`SELECT * FROM sites WHERE id IN (${insertedIds.map(() => '?').join(',')})`)
           .all(...insertedIds)
-          .map(withScore)
+        ).map(withScore)
       : [];
     res.status(201).json({ success: true, inserted: insertedIds.length, skipped, sites: rows });
   } catch (e) {
@@ -302,9 +299,9 @@ router.post('/sites/batch', (req, res) => {
 });
 
 // PUT /api/sites/:id — mise à jour (partielle ou complète)
-router.put('/sites/:id', (req, res) => {
+router.put('/sites/:id', async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ success: false, error: 'Site introuvable' });
 
     const b = req.body || {};
@@ -323,8 +320,8 @@ router.put('/sites/:id', (req, res) => {
     params.push(new Date().toISOString());
     params.push(req.params.id);
 
-    db.prepare(`UPDATE sites SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    await db.prepare(`UPDATE sites SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    const row = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: withScore(row) });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -332,12 +329,12 @@ router.put('/sites/:id', (req, res) => {
 });
 
 // DELETE /api/sites/:id
-router.delete('/sites/:id', (req, res) => {
+router.delete('/sites/:id', async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ success: false, error: 'Site introuvable' });
-    db.prepare('DELETE FROM actions WHERE site_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM actions WHERE site_id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM sites WHERE id = ?').run(req.params.id);
     res.json({ success: true, data: { id: Number(req.params.id) } });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -348,7 +345,7 @@ router.delete('/sites/:id', (req, res) => {
 // (gratuit, sans clé), complété par Pappers seulement si une clé est configurée.
 router.post('/sites/:id/enrich', async (req, res) => {
   try {
-    const site = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    const site = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     if (!site) return res.status(404).json({ success: false, error: 'Site introuvable' });
 
     const sirenRaw = (req.body && req.body.siren) || site.siren || '';
@@ -390,7 +387,7 @@ router.post('/sites/:id/enrich', async (req, res) => {
 
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE sites SET
         siren = ?,
         dirigeant = CASE WHEN ? <> '' THEN ? ELSE dirigeant END,
@@ -411,7 +408,7 @@ router.post('/sites/:id/enrich', async (req, res) => {
       now, now, req.params.id
     );
 
-    const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+    const row = await db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: withScore(row), source });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
@@ -447,15 +444,15 @@ const EXPORT_COLS = [
 ];
 
 // Lignes filtrées + scorées, utilisées par les deux exports.
-function exportRows(query) {
+async function exportRows(query) {
   const { sql, params } = filteredSitesQuery(query);
-  return db.prepare(sql).all(...params).map(withScore);
+  return (await db.prepare(sql).all(...params)).map(withScore);
 }
 
 // GET /api/export/csv — respecte les filtres actifs (statut, enseigne, departement, q)
-router.get('/export/csv', (req, res) => {
+router.get('/export/csv', async (req, res) => {
   try {
-    const rows = exportRows(req.query);
+    const rows = await exportRows(req.query);
     const escape = (v) => {
       const s = v == null ? '' : String(v);
       return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -475,7 +472,7 @@ router.get('/export/csv', (req, res) => {
 // GET /api/export/xlsx — vrai fichier Excel mis en forme (respecte les filtres)
 router.get('/export/xlsx', async (req, res) => {
   try {
-    const rows = exportRows(req.query);
+    const rows = await exportRows(req.query);
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'TransacPharma';

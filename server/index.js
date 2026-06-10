@@ -55,9 +55,6 @@ if (APP_PASSWORD) {
   console.log('🔓 Authentification désactivée (APP_PASSWORD non défini — usage local).');
 }
 
-// Initialise la base (création tables + seed si vide)
-initDb();
-
 // --- API ---
 app.use('/api', actionsRouter); // routes /sites/:id/actions montées en premier
 app.use('/api', sitesRouter);
@@ -85,9 +82,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: err.message || 'Erreur serveur' });
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ TransacPharma — serveur sur http://localhost:${PORT}`);
-  if (!fs.existsSync(distPath)) {
-    console.log('ℹ️  Front non compilé : lance le client Vite avec "npm run dev:client" (mode dev).');
-  }
-});
+// Initialise la base (création tables + seed si vide) PUIS démarre le serveur.
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`✅ TransacPharma — serveur sur http://localhost:${PORT}`);
+      if (!fs.existsSync(distPath)) {
+        console.log('ℹ️  Front non compilé : lance le client Vite avec "npm run dev:client" (mode dev).');
+      }
+    });
+  })
+  .catch((err) => {
+    console.error('[db] Échec de l\'initialisation de la base :', err);
+    process.exit(1);
+  });

@@ -1,32 +1,36 @@
-# Blueprint de déploiement Render — TransacPharma
-# Déploie le conteneur Docker (API + front + SQLite) avec un disque persistant.
+# Blueprint de déploiement Render — TransacPharma (offre GRATUITE)
+#
+# La base est hébergée sur Turso (libSQL cloud, gratuit), donc aucun disque
+# persistant payant n'est nécessaire : le plan "free" suffit.
 #
 # Mise en place : https://dashboard.render.com → New + → Blueprint → connecter
 # le dépôt GitHub. Render lit ce fichier automatiquement.
 #
-# ⚠️ Le disque persistant nécessite un plan payant (Starter ~7 $/mois). L'offre
-# gratuite ne conserve pas les fichiers : la base SQLite serait perdue à chaque
-# redéploiement.
+# ℹ️ Sur l'offre gratuite, le service se met en veille après ~15 min d'inactivité
+# et se réveille en ~30 s au premier accès suivant. Les données ne sont PAS
+# perdues (elles vivent dans Turso, pas sur le service Render).
 
 services:
   - type: web
     name: transacpharma
     runtime: docker
-    plan: starter
+    plan: free
     region: frankfurt
     healthCheckPath: /api/health
     autoDeploy: true
-    disk:
-      name: pharma-db
-      mountPath: /app/db      # emplacement du fichier db/pharma.db dans le conteneur
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: APP_USER
         value: apothical
-      # Mot de passe partagé : à saisir dans le dashboard Render (jamais dans Git)
+      # --- Variables secrètes : à saisir dans le dashboard Render ---
+      # Mot de passe partagé d'accès à l'app (obligatoire)
       - key: APP_PASSWORD
+        sync: false
+      # Connexion Turso (libSQL) — base de données cloud
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
       # Clé Pappers optionnelle (enrichissement capital / CA détaillé)
       - key: PAPPERS_API_TOKEN

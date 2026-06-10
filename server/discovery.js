@@ -336,11 +336,11 @@ function finalizeStatut(c) {
 // --- Cache persistant en base (les données OSM changent rarement) ---
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 jours
 
-function readCache(code) {
+async function readCache(code) {
   return db.prepare('SELECT * FROM discovery_cache WHERE departement = ?').get(code);
 }
-function writeCache(code, osm, candidats, radius) {
-  db.prepare(`
+async function writeCache(code, osm, candidats, radius) {
+  await db.prepare(`
     INSERT INTO discovery_cache (departement, scanned_at, radius, osm_json, candidats_json)
     VALUES (@departement, @scanned_at, @radius, @osm_json, @candidats_json)
     ON CONFLICT(departement) DO UPDATE SET
@@ -360,7 +360,7 @@ function writeCache(code, osm, candidats, radius) {
 //   'recompute' -> OSM en cache, recalcul rapide (rayon changé)
 //   false       -> requêtes Overpass effectuées
 async function scanDepartement(code, radius = 300, forceRefresh = false) {
-  const row = readCache(code);
+  const row = await readCache(code);
   const fresh = row && Date.now() - new Date(row.scanned_at).getTime() < CACHE_TTL;
 
   if (row && fresh && !forceRefresh) {
@@ -373,14 +373,14 @@ async function scanDepartement(code, radius = 300, forceRefresh = false) {
     // Rayon différent : recalcul depuis l'OSM en cache (aucun appel Overpass)
     const osm = JSON.parse(row.osm_json);
     const candidats = await buildCandidats(osm, code, radius);
-    writeCache(code, osm, candidats, radius);
+    await writeCache(code, osm, candidats, radius);
     return { departement: code, status: 'ok', cached: 'recompute', scanned_at: row.scanned_at, candidats };
   }
 
   // Pas de cache / périmé / forcé : on interroge Overpass
   const osm = await fetchOSM(code);
   const candidats = await buildCandidats(osm, code, radius);
-  writeCache(code, osm, candidats, radius);
+  await writeCache(code, osm, candidats, radius);
   return {
     departement: code, status: 'ok', cached: false,
     scanned_at: new Date().toISOString(), candidats
