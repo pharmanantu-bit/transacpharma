@@ -72,6 +72,32 @@ npm run build      # compile le front dans client/dist
 npm start          # sert le tout sur http://localhost:3000
 ```
 
+## Déploiement en ligne (Render)
+
+Le dépôt contient un blueprint `render.yaml` prêt à l'emploi (Docker + disque
+persistant pour la base SQLite).
+
+1. Pousser le code sur GitHub (déjà fait).
+2. Sur [dashboard.render.com](https://dashboard.render.com) → **New +** → **Blueprint**,
+   connecter le dépôt `transacpharma`. Render lit `render.yaml` automatiquement.
+3. Renseigner les variables marquées « secret » :
+   - **`APP_PASSWORD`** — le mot de passe partagé d'accès (obligatoire).
+   - `PAPPERS_API_TOKEN` — optionnel (bonus Pappers).
+4. Déployer. L'app est servie en HTTPS sur `https://transacpharma.onrender.com`
+   (ou un domaine perso).
+
+> 💡 Le **disque persistant** (qui conserve `db/pharma.db` entre les
+> redéploiements) nécessite un plan payant **Starter (~7 $/mois)**. L'offre
+> gratuite réinitialiserait la base à chaque déploiement.
+
+### Authentification
+
+Quand **`APP_PASSWORD`** est défini, toute l'application est protégée par un
+identifiant + mot de passe (Basic Auth, fenêtre du navigateur à l'ouverture).
+Identifiant par défaut `apothical` (modifiable via `APP_USER`).
+
+En local, laisse `APP_PASSWORD` vide : l'accès reste direct, sans login.
+
 ## API REST
 
 Toutes les réponses sont au format JSON avec un champ `success: true/false`.

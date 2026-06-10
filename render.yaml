@@ -1,0 +1,33 @@
+# Blueprint de déploiement Render — TransacPharma
+# Déploie le conteneur Docker (API + front + SQLite) avec un disque persistant.
+#
+# Mise en place : https://dashboard.render.com → New + → Blueprint → connecter
+# le dépôt GitHub. Render lit ce fichier automatiquement.
+#
+# ⚠️ Le disque persistant nécessite un plan payant (Starter ~7 $/mois). L'offre
+# gratuite ne conserve pas les fichiers : la base SQLite serait perdue à chaque
+# redéploiement.
+
+services:
+  - type: web
+    name: transacpharma
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: pharma-db
+      mountPath: /app/db      # emplacement du fichier db/pharma.db dans le conteneur
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_USER
+        value: apothical
+      # Mot de passe partagé : à saisir dans le dashboard Render (jamais dans Git)
+      - key: APP_PASSWORD
+        sync: false
+      # Clé Pappers optionnelle (enrichissement capital / CA détaillé)
+      - key: PAPPERS_API_TOKEN
+        sync: false

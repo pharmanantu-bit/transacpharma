@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // Charge le fichier .env (ex : PAPPERS_API_TOKEN) s'il existe.
 // Node 20.12+/22+ : process.loadEnvFile. Sinon on garde les variables système.
@@ -21,6 +22,38 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '1mb' }));
+
+// --- Authentification simple par mot de passe partagé ---
+// Activée uniquement si APP_PASSWORD est défini (donc : ouverte en dev local,
+// protégée en production sur Render où la variable est renseignée).
+// /api/health reste public pour le health check de l'hébergeur.
+const APP_USER = process.env.APP_USER || 'apothical';
+const APP_PASSWORD = process.env.APP_PASSWORD;
+
+function safeEqual(a, b) {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+if (APP_PASSWORD) {
+  app.use((req, res, next) => {
+    if (req.path === '/api/health') return next();
+    const hdr = req.headers.authorization || '';
+    const [scheme, encoded] = hdr.split(' ');
+    if (scheme === 'Basic' && encoded) {
+      const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+      if (user && pass && safeEqual(user, APP_USER) && safeEqual(pass, APP_PASSWORD)) {
+        return next();
+      }
+    }
+    res.set('WWW-Authenticate', 'Basic realm="TransacPharma", charset="UTF-8"');
+    return res.status(401).send('Authentification requise');
+  });
+  console.log('🔒 Authentification activée (mot de passe partagé).');
+} else {
+  console.log('🔓 Authentification désactivée (APP_PASSWORD non défini — usage local).');
+}
 
 // Initialise la base (création tables + seed si vide)
 initDb();
