@@ -92,7 +92,9 @@ async function enrichFromGouv(siren) {
   });
   if (!res.ok) return null;
   const json = await res.json();
-  const e = (json.results || []).find((r) => r.siren === siren) || (json.results || [])[0];
+  // Correspondance EXACTE sur le SIREN demandé. Pas de repli sur le 1er résultat :
+  // mieux vaut « aucune donnée » qu'une société au hasard (dirigeant/âge faux).
+  const e = (json.results || []).find((r) => r.siren === siren);
   if (!e) return null;
 
   const dirs = (e.dirigeants || []).filter(

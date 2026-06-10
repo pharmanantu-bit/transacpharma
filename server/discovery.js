@@ -145,23 +145,82 @@ function coordOf(el) {
   return null;
 }
 
+// Code NAF des « Commerces de détail de produits pharmaceutiques » (officines).
+const NAF_PHARMACIE = '47.73Z';
+
+// Normalise un nom pour comparaison : minuscules, sans accents ni ponctuation.
+function normName(s) {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // --- Confirmation SIREN d'une pharmacie via recherche-entreprises ---
-async function findPharmacieSiren(nom, codePostal, dep) {
+// Fiabilisé : restreint au code NAF pharmacie (47.73Z), écarte les sociétés
+// cessées, puis départage les candidats par PROXIMITÉ (siège vs centre) — la
+// pharmacie du centre commercial est la plus proche — avec la similarité de nom
+// en secours. Renvoie null plutôt qu'un SIREN douteux.
+async function findPharmacieSiren(nom, codePostal, dep, lat, lon) {
   try {
-    const q = nom && nom.trim().length > 2 ? nom.trim() : '';
-    if (!q) return null; // sans nom de pharmacie, la recherche n'est pas fiable
-    const params = new URLSearchParams({ q, per_page: '3' });
+    const params = new URLSearchParams({
+      q: nom && nom.trim().length > 2 ? nom.trim() : 'pharmacie',
+      activite_principale: NAF_PHARMACIE,
+      per_page: '10'
+    });
     if (codePostal) params.set('code_postal', codePostal);
     else if (dep) params.set('departement', dep);
+
     const res = await fetch(`${RECHERCHE_API}?${params.toString()}`, {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(10000)
     });
     if (!res.ok) return null;
     const json = await res.json();
-    const r = (json.results || [])[0];
-    if (!r) return null;
-    return { siren: r.siren || null, nom_complet: r.nom_complet || null };
+    let results = (json.results || []).filter((r) => r.siren);
+    if (results.length === 0) return null;
+
+    // Pharmacies en activité de préférence (état administratif « A »)
+    const actives = results.filter((r) => r.etat_administratif === 'A');
+    if (actives.length) results = actives;
+
+    const wantedTokens = new Set(
+      normName(nom).split(' ').filter((w) => w.length > 2 && w !== 'pharmacie')
+    );
+
+    const scored = results.map((r) => {
+      const sLat = r.siege ? parseFloat(r.siege.latitude) : NaN;
+      const sLon = r.siege ? parseFloat(r.siege.longitude) : NaN;
+      const hasGeo =
+        lat != null && lon != null && Number.isFinite(sLat) && Number.isFinite(sLon);
+      const dist = hasGeo ? haversine(lat, lon, sLat, sLon) : null;
+
+      const name = normName(r.nom_complet);
+      let overlap = 0;
+      for (const t of wantedTokens) if (name.includes(t)) overlap++;
+      const cpMatch = codePostal && r.siege && r.siege.code_postal === codePostal ? 1 : 0;
+
+      return { r, dist, overlap, cpMatch };
+    });
+
+    // Distance d'abord (si connue), puis recouvrement de nom, puis code postal.
+    scored.sort((a, b) => {
+      if (a.dist != null && b.dist != null && a.dist !== b.dist) return a.dist - b.dist;
+      if (a.dist != null && b.dist == null) return -1;
+      if (a.dist == null && b.dist != null) return 1;
+      if (b.overlap !== a.overlap) return b.overlap - a.overlap;
+      return b.cpMatch - a.cpMatch;
+    });
+
+    const best = scored[0];
+    // Garde-fou : une distance aberrante (> 3 km du centre) = probablement la
+    // mauvaise pharmacie → on préfère ne rien renvoyer.
+    if (best.dist != null && best.dist > 3000) return null;
+
+    return { siren: best.r.siren || null, nom_complet: best.r.nom_complet || null };
   } catch {
     return null;
   }
@@ -254,7 +313,13 @@ async function buildCandidats(osm, code, radius) {
   for (const c of candidats) {
     if (c.pharmacie_presente && lookups < 25) {
       lookups++;
-      const found = await findPharmacieSiren(c.pharmacie_nom, c.code_postal, c.departement);
+      const found = await findPharmacieSiren(
+        c.pharmacie_nom,
+        c.code_postal,
+        c.departement,
+        c.latitude,
+        c.longitude
+      );
       if (found) {
         c.siren = found.siren;
         if (!c.pharmacie_nom && found.nom_complet) c.pharmacie_nom = found.nom_complet;
