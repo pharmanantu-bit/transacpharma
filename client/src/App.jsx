@@ -24,6 +24,21 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null); // { mode: 'new' | 'edit', site? }
   const [activeTab, setActiveTab] = useState('prospection');
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // URL d'export qui reprend les filtres + la recherche actifs (même vue qu'à l'écran)
+  const exportUrl = useCallback(
+    (format) => {
+      const params = new URLSearchParams();
+      if (filters.statut) params.set('statut', filters.statut);
+      if (filters.enseigne) params.set('enseigne', filters.enseigne);
+      if (filters.departement) params.set('departement', filters.departement);
+      if (search.trim()) params.set('q', search.trim());
+      const qs = params.toString();
+      return `${API}/export/${format}${qs ? '?' + qs : ''}`;
+    },
+    [filters, search]
+  );
 
   const fetchSites = useCallback(async () => {
     setLoading(true);
@@ -152,12 +167,34 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={`${API}/export/csv`}
-              className="px-3.5 py-2 text-sm font-semibold rounded-lg border border-gray-300 text-marine hover:bg-gray-50 transition"
-            >
-              ⬇ Exporter CSV
-            </a>
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((o) => !o)}
+                onBlur={() => setTimeout(() => setExportOpen(false), 150)}
+                className="px-3.5 py-2 text-sm font-semibold rounded-lg border border-gray-300 text-marine hover:bg-gray-50 transition"
+              >
+                ⬇ Exporter ▾
+              </button>
+              {exportOpen && (
+                <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-30 overflow-hidden">
+                  <a
+                    href={exportUrl('xlsx')}
+                    className="block px-4 py-2.5 text-sm text-marine hover:bg-gray-50 transition"
+                  >
+                    📊 Excel (.xlsx)
+                  </a>
+                  <a
+                    href={exportUrl('csv')}
+                    className="block px-4 py-2.5 text-sm text-marine hover:bg-gray-50 border-t border-gray-100 transition"
+                  >
+                    📄 CSV (.csv)
+                  </a>
+                  <p className="px-4 py-2 text-[11px] text-gray-400 border-t border-gray-100">
+                    Export de la vue filtrée actuelle
+                  </p>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setModal({ mode: 'new' })}
               className="px-3.5 py-2 text-sm font-semibold rounded-lg bg-marine text-white hover:bg-[#262640] transition"

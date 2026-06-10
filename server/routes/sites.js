@@ -1,4 +1,5 @@
 const express = require('express');
+const ExcelJS = require('exceljs');
 const router = express.Router();
 const { db } = require('../db');
 const { computeScore } = require('../scoring');
@@ -154,23 +155,29 @@ function mergeEnrich(base, extra) {
 
 // ---------- Routes ----------
 
+// Construit la requête SELECT filtrée (statut, enseigne, departement, q),
+// partagée par la liste et les exports pour qu'ils restent cohérents.
+function filteredSitesQuery(query) {
+  const { statut, enseigne, departement, q } = query || {};
+  let sql = 'SELECT * FROM sites WHERE 1=1';
+  const params = [];
+
+  if (statut) { sql += ' AND statut = ?'; params.push(statut); }
+  if (enseigne) { sql += ' AND enseigne = ?'; params.push(enseigne); }
+  if (departement) { sql += ' AND departement = ?'; params.push(departement); }
+  if (q) {
+    sql += ' AND (cc LIKE ? OR pharmacie LIKE ? OR dirigeant LIKE ? OR remarques LIKE ? OR groupement LIKE ? OR siren LIKE ?)';
+    const like = `%${q}%`;
+    params.push(like, like, like, like, like, like);
+  }
+  sql += ' ORDER BY id ASC';
+  return { sql, params };
+}
+
 // GET /api/sites — liste avec filtres optionnels (statut, enseigne, departement, q)
 router.get('/sites', (req, res) => {
   try {
-    const { statut, enseigne, departement, q } = req.query;
-    let sql = 'SELECT * FROM sites WHERE 1=1';
-    const params = [];
-
-    if (statut) { sql += ' AND statut = ?'; params.push(statut); }
-    if (enseigne) { sql += ' AND enseigne = ?'; params.push(enseigne); }
-    if (departement) { sql += ' AND departement = ?'; params.push(departement); }
-    if (q) {
-      sql += ' AND (cc LIKE ? OR pharmacie LIKE ? OR dirigeant LIKE ? OR remarques LIKE ? OR groupement LIKE ? OR siren LIKE ?)';
-      const like = `%${q}%`;
-      params.push(like, like, like, like, like, like);
-    }
-    sql += ' ORDER BY id ASC';
-
+    const { sql, params } = filteredSitesQuery(req.query);
     const rows = db.prepare(sql).all(...params).map(withScore);
     res.json({ success: true, data: rows });
   } catch (e) {
@@ -411,31 +418,112 @@ router.post('/sites/:id/enrich', async (req, res) => {
   }
 });
 
-// GET /api/export/csv — export complet (avec score)
+// Colonnes exportées (clé technique + en-tête lisible), partagées CSV + Excel.
+const EXPORT_COLS = [
+  { key: 'id', label: 'ID' },
+  { key: 'cc', label: 'CC' },
+  { key: 'departement', label: 'Dép' },
+  { key: 'enseigne', label: 'Enseigne' },
+  { key: 'siren', label: 'SIREN' },
+  { key: 'pharmacie', label: 'Pharmacie' },
+  { key: 'dirigeant', label: 'Dirigeant' },
+  { key: 'age', label: 'Âge' },
+  { key: 'groupement', label: 'Groupement' },
+  { key: 'statut', label: 'Statut' },
+  { key: 'score', label: 'Score' },
+  { key: 'score_label', label: 'Niveau' },
+  { key: 'capital', label: 'Capital' },
+  { key: 'forme_juridique', label: 'Forme juridique' },
+  { key: 'date_creation', label: 'Création' },
+  { key: 'effectif', label: 'Effectif' },
+  { key: 'chiffre_affaires', label: 'CA' },
+  { key: 'relance_at', label: 'Relance le' },
+  { key: 'relance_note', label: 'Note relance' },
+  { key: 'remarques', label: 'Remarques' },
+  { key: 'note_interne', label: 'Note interne' },
+  { key: 'enriched_at', label: 'Enrichi le' },
+  { key: 'date_maj', label: 'Maj le' },
+  { key: 'created_at', label: 'Créé le' }
+];
+
+// Lignes filtrées + scorées, utilisées par les deux exports.
+function exportRows(query) {
+  const { sql, params } = filteredSitesQuery(query);
+  return db.prepare(sql).all(...params).map(withScore);
+}
+
+// GET /api/export/csv — respecte les filtres actifs (statut, enseigne, departement, q)
 router.get('/export/csv', (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM sites ORDER BY id ASC').all();
-    const cols = [
-      'id', 'cc', 'departement', 'enseigne', 'siren', 'pharmacie',
-      'dirigeant', 'age', 'groupement', 'statut', 'score', 'score_label',
-      'capital', 'forme_juridique', 'date_creation', 'effectif', 'chiffre_affaires',
-      'relance_at', 'relance_note',
-      'remarques', 'note_interne', 'enriched_at', 'date_maj', 'created_at'
-    ];
+    const rows = exportRows(req.query);
     const escape = (v) => {
       const s = v == null ? '' : String(v);
       return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
-    const header = cols.join(';');
-    const lines = rows.map((r) => {
-      const scored = withScore(r);
-      return cols.map((c) => escape(scored[c])).join(';');
-    });
+    const header = EXPORT_COLS.map((c) => c.label).join(';');
+    const lines = rows.map((r) => EXPORT_COLS.map((c) => escape(r[c.key])).join(';'));
     const csv = '﻿' + [header, ...lines].join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="transacpharma_export.csv"');
     res.send(csv);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/export/xlsx — vrai fichier Excel mis en forme (respecte les filtres)
+router.get('/export/xlsx', async (req, res) => {
+  try {
+    const rows = exportRows(req.query);
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'TransacPharma';
+    const ws = wb.addWorksheet('Prospection', {
+      views: [{ state: 'frozen', ySplit: 1 }]
+    });
+
+    ws.columns = EXPORT_COLS.map((c) => ({
+      header: c.label,
+      key: c.key,
+      width: Math.min(Math.max(c.label.length + 2, 10), 40)
+    }));
+
+    // En-tête : fond marine, texte ambre, gras
+    const head = ws.getRow(1);
+    head.font = { bold: true, color: { argb: 'FFE8A838' } };
+    head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2B2B45' } };
+    head.alignment = { vertical: 'middle' };
+    head.height = 20;
+
+    // Couleur de fond du score selon le niveau (Chaud/Tiède/Froid/Exclu)
+    const SCORE_FILL = {
+      Chaud: 'FFFCE0E0',
+      Tiède: 'FFFDEBC8',
+      Froid: 'FFE5EAF1',
+      Exclu: 'FFE5E7EB'
+    };
+
+    for (const r of rows) {
+      const row = ws.addRow(r);
+      const fill = SCORE_FILL[r.score_label];
+      if (fill) {
+        const cell = row.getCell('score');
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+        cell.font = { bold: true };
+        cell.alignment = { horizontal: 'center' };
+      }
+    }
+
+    ws.autoFilter = { from: 'A1', to: { row: 1, column: EXPORT_COLS.length } };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="transacpharma_export.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
