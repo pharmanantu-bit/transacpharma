@@ -373,14 +373,15 @@ router.post('/sites/:id/enrich', async (req, res) => {
     }
     let source = 'annuaire-entreprises';
 
-    // 2) Bonus optionnel : Pappers si une clé est configurée (capital, CA détaillé)
+    // 2) Pappers si une clé est configurée : source PRIORITAIRE (dirigeants/âges
+    //    complets, capital, CA détaillé). L'annuaire gratuit comble les trous.
     const token = process.env.PAPPERS_API_TOKEN;
     if (token) {
       try {
         const p = await enrichFromPappers(siren, token);
         if (p) {
-          m = mergeEnrich(m, p);
-          source = 'annuaire + pappers';
+          m = mergeEnrich(p, m); // p (Pappers) gagne, m (annuaire) en secours
+          source = 'pappers + annuaire';
         }
       } catch {
         /* on conserve la donnée gratuite */
