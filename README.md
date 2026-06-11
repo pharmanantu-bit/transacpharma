@@ -140,6 +140,10 @@ Toutes les réponses sont au format JSON avec un champ `success: true/false`.
 | POST    | `/api/sites/batch`          | Import en masse (depuis la Découverte)   |
 | GET     | `/api/discovery/departements` | Liste des départements (sélecteur)     |
 | POST    | `/api/discovery/scan`       | Scan d'opportunités par département(s)    |
+| POST    | `/api/bodacc/scan`          | Veille BODACC : scan de tous les SIREN (ou `site_ids`) |
+| GET     | `/api/bodacc/alertes`       | Alertes BODACC non lues                  |
+| POST    | `/api/bodacc/lu`            | Marquer des alertes comme lues (`ids` ou `all`) |
+| GET     | `/api/sites/:id/bodacc`     | Historique BODACC d'un site              |
 | GET     | `/api/export/csv`           | Export CSV complet (avec score)          |
 
 ## Découverte d'opportunités
@@ -167,6 +171,16 @@ Onglet **📋 Pipeline** : vue Kanban avec une colonne par statut (Cible, À sur
 **Glisser-déposer** une carte d'une colonne à l'autre change son statut — le score est recalculé automatiquement.
 
 **Relances / rappels** : chaque fiche a une section « ⏰ Relance / rappel » (date + note, sauvegarde automatique). Un bandeau **« Relances à traiter »** s'affiche en haut des onglets Prospection et Pipeline ; il liste les rappels en retard, du jour et des 7 prochains jours, triés par urgence et cliquables. La date de relance figure aussi dans l'export CSV.
+
+## Veille BODACC
+
+Le bandeau **📰 Veille BODACC** (onglets Prospection et Pipeline) surveille les **annonces commerciales officielles** (bodacc.fr, API DILA gratuite et sans clé) de tous les sites ayant un SIREN. « Scanner maintenant » interroge le BODACC et fait remonter les signaux de cession :
+
+- 🚨 **Critique** — vente / cession du fonds, procédure collective, radiation ;
+- ⚠️ **Important** — modification du capital, transformation juridique, mouvement de dirigeant ;
+- ℹ️ **Info** — le reste (immatriculations, modifications mineures) — conservé dans l'historique de la fiche, sans alerte.
+
+Les annonces notables de **moins de 24 mois** apparaissent comme alertes (cliquables → fiche) jusqu'à être marquées lues. Le signal dominant de chaque site **entre dans le score** (+25 critique, +10 important) et un 🚨 s'affiche dans le tableau pour les signaux critiques. Chaque fiche a sa section « Annonces BODACC » avec l'historique complet, le lien vers l'avis officiel et un bouton « Vérifier maintenant ». Les dépôts de comptes sont ignorés.
 
 ## Scoring d'opportunité
 

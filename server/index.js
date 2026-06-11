@@ -14,9 +14,11 @@ if (typeof process.loadEnvFile === 'function') {
 }
 
 const { initDb } = require('./db');
+const { startBodaccScheduler } = require('./bodacc-scheduler');
 const sitesRouter = require('./routes/sites');
 const actionsRouter = require('./routes/actions');
 const discoveryRouter = require('./routes/discovery');
+const bodaccRouter = require('./routes/bodacc');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,6 +59,7 @@ if (APP_PASSWORD) {
 
 // --- API ---
 app.use('/api', actionsRouter); // routes /sites/:id/actions montées en premier
+app.use('/api', bodaccRouter); // routes /bodacc/* et /sites/:id/bodacc
 app.use('/api', sitesRouter);
 app.use('/api', discoveryRouter);
 
@@ -90,6 +93,7 @@ initDb()
       if (!fs.existsSync(distPath)) {
         console.log('ℹ️  Front non compilé : lance le client Vite avec "npm run dev:client" (mode dev).');
       }
+      startBodaccScheduler();
     });
   })
   .catch((err) => {

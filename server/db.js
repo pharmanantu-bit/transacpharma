@@ -127,6 +127,25 @@ async function initDb() {
       osm_json TEXT,
       candidats_json TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS bodacc_annonces (
+      id TEXT PRIMARY KEY,
+      site_id INTEGER REFERENCES sites(id) ON DELETE CASCADE,
+      siren TEXT,
+      date_parution TEXT,
+      famille TEXT,
+      famille_lib TEXT,
+      type_lib TEXT,
+      descriptif TEXT,
+      niveau TEXT,
+      signal TEXT,
+      tribunal TEXT,
+      url TEXT,
+      lu INTEGER DEFAULT 0,
+      created_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bodacc_site ON bodacc_annonces(site_id);
   `);
 
   // Migration : colonnes d'enrichissement (ajoutées si absentes)
@@ -142,6 +161,11 @@ async function initDb() {
 
   // Migration : relance / rappel (date au format YYYY-MM-DD + note courte)
   for (const c of ['relance_at', 'relance_note']) await ensureCol(c);
+
+  // Migration : veille BODACC (signal dominant + date du dernier scan)
+  for (const c of ['bodacc_signal', 'bodacc_niveau', 'bodacc_signal_date', 'bodacc_checked_at']) {
+    await ensureCol(c);
+  }
 
   // Migration : colonnes de découverte / géolocalisation
   const ensureTypedCol = async (name, type) => {

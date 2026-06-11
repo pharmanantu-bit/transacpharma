@@ -2,6 +2,13 @@
 // Calcule un score 0-100 + un niveau (Chaud / Tiède / Froid / Exclu)
 // à partir des signaux disponibles sur une fiche site.
 
+function monthsSince(dateStr) {
+  if (!dateStr) return Infinity;
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return Infinity;
+  return (Date.now() - d.getTime()) / (30.44 * 86400000);
+}
+
 function parseAges(age) {
   if (!age) return [];
   const nums = String(age).match(/\d{2,3}/g);
@@ -33,6 +40,12 @@ function computeScore(site) {
     return { score: 0, label: 'Exclu', reasons: ['Site exclu de la prospection'] };
   }
 
+  // Vente du fonds actée ou radiation (BODACC < 24 mois) : un repreneur est
+  // en place (ou la société a disparu), le site n'est plus une cible de rachat.
+  if (site.bodacc_niveau === 'vendu' && monthsSince(site.bodacc_signal_date) <= 24) {
+    return { score: 0, label: 'Exclu', reasons: [`BODACC : ${site.bodacc_signal}`] };
+  }
+
   const reasons = [];
   let score = 0;
   const remarques = site.remarques || '';
@@ -61,6 +74,17 @@ function computeScore(site) {
     if (s.re.test(remarques)) {
       score += s.pts;
       reasons.push(s.label);
+    }
+  }
+
+  // 2bis. Signal BODACC (veille automatique) — annonce officielle de moins de 24 mois
+  if (site.bodacc_signal && monthsSince(site.bodacc_signal_date) <= 24) {
+    if (site.bodacc_niveau === 'critique') {
+      score += 25;
+      reasons.push(`BODACC : ${site.bodacc_signal}`);
+    } else if (site.bodacc_niveau === 'important') {
+      score += 10;
+      reasons.push(`BODACC : ${site.bodacc_signal}`);
     }
   }
 

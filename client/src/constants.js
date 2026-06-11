@@ -24,6 +24,14 @@ export const SCORE_LEVELS = {
   Exclu: { label: 'Exclu', emoji: '⛔', bg: '#E5E7EB', text: '#6B7280' }
 };
 
+// Niveaux d'alerte de la veille BODACC (badges bandeau + fiche)
+export const BODACC_NIVEAUX = {
+  vendu: { label: 'Vendu/Radié', emoji: '🔒', bg: '#E5E7EB', text: '#6B7280' },
+  critique: { label: 'Critique', emoji: '🚨', bg: '#FEE2E2', text: '#B91C1C' },
+  important: { label: 'Important', emoji: '⚠️', bg: '#FEF3C7', text: '#92400E' },
+  info: { label: 'Info', emoji: 'ℹ️', bg: '#E5EAF1', text: '#475066' }
+};
+
 export const ENSEIGNES = ['Carrefour', 'Auchan', 'Leclerc'];
 
 export const DEPARTEMENTS = ['28', '60', '77', '78', '91', '93', '94', '95'];

@@ -99,7 +99,15 @@ export default function TableauProspection({ sites, sort, onSort, onRowClick, lo
                     <td className="px-3 py-2.5">
                       <ScoreBadge score={s.score ?? 0} label={s.score_label} compact />
                     </td>
-                    <td className="px-3 py-2.5 font-medium">{s.cc || '—'}</td>
+                    <td className="px-3 py-2.5 font-medium">
+                      {s.bodacc_niveau === 'critique' && (
+                        <span title={`BODACC : ${s.bodacc_signal}`} className="mr-1">🚨</span>
+                      )}
+                      {s.bodacc_niveau === 'vendu' && (
+                        <span title={`BODACC : ${s.bodacc_signal}`} className="mr-1">🔒</span>
+                      )}
+                      {s.cc || '—'}
+                    </td>
                     <td className="px-3 py-2.5 text-gray-600">{s.departement || '—'}</td>
                     <td className="px-3 py-2.5 text-gray-600">{s.enseigne || '—'}</td>
                     <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{s.siren || '—'}</td>

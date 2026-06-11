@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { STATUTS, STATUT_ORDER, ACTION_TYPES, ageNumber, formatDate, relanceStatus, RELANCE_STYLE } from '../constants';
+import { STATUTS, STATUT_ORDER, ACTION_TYPES, BODACC_NIVEAUX, ageNumber, formatDate, formatDateShort, relanceStatus, RELANCE_STYLE } from '../constants';
 import { Badge, ScoreBadge } from './TableauProspection';
 import HistoriqueActions from './HistoriqueActions';
 
@@ -30,6 +30,12 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
   const [relanceNote, setRelanceNote] = useState(site.relance_note || '');
   const [relanceSaved, setRelanceSaved] = useState(false);
 
+  const [bodacc, setBodacc] = useState(null); // null = chargement
+  const [bodaccCheckedAt, setBodaccCheckedAt] = useState('');
+  const [bodaccChecking, setBodaccChecking] = useState(false);
+  const [bodaccError, setBodaccError] = useState('');
+  const hasSiren = String(site.siren || '').replace(/\D/g, '').length === 9;
+
   const debounceRef = useRef(null);
   const relanceDebounceRef = useRef(null);
   const ageSenior = ageNumber(site.age) != null && ageNumber(site.age) >= 60;
@@ -57,6 +63,55 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
   useEffect(() => {
     loadActions();
   }, [loadActions]);
+
+  const loadBodacc = useCallback(async () => {
+    try {
+      const res = await fetch(`${api}/sites/${site.id}/bodacc`);
+      const json = await res.json();
+      if (json.success) {
+        setBodacc(json.data);
+        setBodaccCheckedAt(json.checked_at || '');
+      }
+    } catch {
+      setBodacc([]);
+    }
+  }, [api, site.id]);
+
+  useEffect(() => {
+    setBodacc(null);
+    setBodaccError('');
+    loadBodacc();
+  }, [loadBodacc]);
+
+  // Vérification BODACC à la demande pour cette fiche : scan du SIREN puis
+  // rechargement du site (le signal détecté entre dans le score).
+  const checkBodacc = async () => {
+    setBodaccChecking(true);
+    setBodaccError('');
+    try {
+      const res = await fetch(`${api}/bodacc/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site_ids: [site.id] })
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setBodaccError(json.error || 'Échec de la vérification BODACC.');
+        return;
+      }
+      if (json.erreurs && json.erreurs.length) {
+        setBodaccError(json.erreurs[0].error);
+      }
+      await loadBodacc();
+      const sres = await fetch(`${api}/sites/${site.id}`);
+      const sjson = await sres.json();
+      if (sjson.success) onEnriched && onEnriched(sjson.data);
+    } catch (e) {
+      setBodaccError(e.message);
+    } finally {
+      setBodaccChecking(false);
+    }
+  };
 
   // Autosave de la note interne (debounce 700ms)
   const onNoteChange = (val) => {
@@ -290,6 +345,81 @@ export default function FicheDetail({ site, api, onClose, onUpdate, onEnriched, 
               <span className="text-xs font-semibold text-gray-400">Remarques</span>
               <p className="text-sm text-marine mt-1 whitespace-pre-wrap">{site.remarques || '—'}</p>
             </div>
+          </section>
+
+          {/* Veille BODACC */}
+          <section className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                📰 Annonces BODACC
+              </h3>
+              <div className="flex items-center gap-2">
+                {bodaccCheckedAt && (
+                  <span className="text-[11px] text-gray-400">
+                    Vérifié le {formatDateShort(bodaccCheckedAt)}
+                  </span>
+                )}
+                {hasSiren && (
+                  <button
+                    onClick={checkBodacc}
+                    disabled={bodaccChecking}
+                    title="Interroge le BODACC (annonces commerciales officielles, gratuit)"
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber text-amber hover:bg-amber/10 disabled:opacity-60"
+                  >
+                    {bodaccChecking ? '⟳ Vérification…' : '⟳ Vérifier maintenant'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {bodaccError && <p className="text-xs text-red-600 mb-2">{bodaccError}</p>}
+
+            {!hasSiren ? (
+              <p className="text-sm text-gray-400">
+                Renseigne un SIREN sur la fiche pour activer la veille BODACC.
+              </p>
+            ) : bodacc === null ? (
+              <p className="text-sm text-gray-400">Chargement…</p>
+            ) : bodacc.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                Aucune annonce en mémoire — lance « Vérifier maintenant ».
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {bodacc.map((a) => {
+                  const cfg = BODACC_NIVEAUX[a.niveau] || BODACC_NIVEAUX.info;
+                  return (
+                    <li key={a.id} className="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="text-[11px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap"
+                          style={{ backgroundColor: cfg.bg, color: cfg.text }}
+                        >
+                          {cfg.emoji} {a.signal || a.famille_lib}
+                        </span>
+                        <span className="text-xs text-gray-500">{formatDateShort(a.date_parution)}</span>
+                        <span className="text-xs text-gray-400">{a.famille_lib}</span>
+                        {a.url && (
+                          <a
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-amber hover:underline ml-auto"
+                          >
+                            Voir l'avis ↗
+                          </a>
+                        )}
+                      </div>
+                      {a.descriptif && (
+                        <p className="text-xs text-gray-600 mt-1 line-clamp-3" title={a.descriptif}>
+                          {a.descriptif}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
 
           {/* Note interne */}

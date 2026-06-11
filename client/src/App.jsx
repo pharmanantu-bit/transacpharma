@@ -8,6 +8,7 @@ import Tabs from './components/Tabs';
 import Decouverte from './components/Decouverte';
 import PipelineKanban from './components/PipelineKanban';
 import RelancesPanel from './components/RelancesPanel';
+import BodaccPanel from './components/BodaccPanel';
 import { ageNumber } from './constants';
 
 const API = '/api';
@@ -217,7 +218,10 @@ export default function App() {
         />
 
         {(activeTab === 'prospection' || activeTab === 'pipeline') && (
-          <RelancesPanel sites={sites} onOpen={(id) => setSelectedId(id)} />
+          <>
+            <RelancesPanel sites={sites} onOpen={(id) => setSelectedId(id)} />
+            <BodaccPanel api={API} onOpen={(id) => setSelectedId(id)} onScanned={fetchSites} />
+          </>
         )}
 
         {activeTab === 'prospection' && (
