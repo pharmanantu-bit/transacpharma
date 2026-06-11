@@ -14,6 +14,26 @@ router.post('/bodacc/scan', async (req, res) => {
   }
 });
 
+// GET /api/bodacc/annonces — journal complet de la veille : toutes les
+// annonces (lues ou non) jointes à leur site, les 300 plus récentes.
+router.get('/bodacc/annonces', async (req, res) => {
+  try {
+    const rows = await db.prepare(`
+      SELECT b.*, s.cc, s.pharmacie
+      FROM bodacc_annonces b
+      JOIN sites s ON s.id = b.site_id
+      ORDER BY b.date_parution DESC
+      LIMIT 300
+    `).all();
+    const { checked_at } = await db
+      .prepare('SELECT MAX(bodacc_checked_at) AS checked_at FROM sites')
+      .get();
+    res.json({ success: true, data: rows, checked_at: checked_at || '' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // GET /api/bodacc/alertes — annonces non lues, jointes à leur site.
 router.get('/bodacc/alertes', async (req, res) => {
   try {

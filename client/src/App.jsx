@@ -8,7 +8,7 @@ import Tabs from './components/Tabs';
 import Decouverte from './components/Decouverte';
 import PipelineKanban from './components/PipelineKanban';
 import RelancesPanel from './components/RelancesPanel';
-import BodaccPanel from './components/BodaccPanel';
+import VeilleBodacc from './components/VeilleBodacc';
 import { ageNumber } from './constants';
 
 const API = '/api';
@@ -213,15 +213,13 @@ export default function App() {
           tabs={[
             { key: 'prospection', label: 'Prospection' },
             { key: 'pipeline', label: '📋 Pipeline' },
+            { key: 'veille', label: '📰 Veille' },
             { key: 'decouverte', label: '✨ Découverte' }
           ]}
         />
 
         {(activeTab === 'prospection' || activeTab === 'pipeline') && (
-          <>
-            <RelancesPanel sites={sites} onOpen={(id) => setSelectedId(id)} />
-            <BodaccPanel api={API} onOpen={(id) => setSelectedId(id)} onScanned={fetchSites} />
-          </>
+          <RelancesPanel sites={sites} onOpen={(id) => setSelectedId(id)} />
         )}
 
         {activeTab === 'prospection' && (
@@ -269,6 +267,10 @@ export default function App() {
               onMoveStatut={(id, statut) => updateSite(id, { statut })}
             />
           </>
+        )}
+
+        {activeTab === 'veille' && (
+          <VeilleBodacc api={API} onOpen={(id) => setSelectedId(id)} onScanned={fetchSites} />
         )}
 
         {activeTab === 'decouverte' && <Decouverte onImported={fetchSites} />}
